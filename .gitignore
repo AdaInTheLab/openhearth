@@ -1,0 +1,13 @@
+node_modules/
+logs/
+*.log
+*.log.err
+koda.pid
+sage.pid
+*.pid
+config.json
+config.local.json
+.env
+.env.*
+.DS_Store
+Thumbs.db
