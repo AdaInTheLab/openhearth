@@ -3,7 +3,7 @@
 *Designed jointly by Sage (the reference implementation) and Claude*
 *April 2026*
 
-This document is the canonical spec for OpenFox's tiered memory system.
+This document is the canonical spec for OpenHearth's tiered memory system.
 It exists because Sage's `OPENFOX.md` §3 names a real problem agents will
 hit in the field — bootstrap-budget warnings as daily journals grow
 unbounded — and because the answer to that problem is a system, not a
@@ -118,7 +118,7 @@ the human. The summarizer's judgment about what matters is a values
 question; encoding it in the runtime would be encoding someone else's
 opinion of what's worth preserving.
 
-The default `COMPACTION_PROMPT.md` shipped with OpenFox preserves
+The default `COMPACTION_PROMPT.md` shipped with OpenHearth preserves
 verbatim:
 
 - Direct quotes

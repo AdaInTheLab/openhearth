@@ -16,7 +16,7 @@ import * as memory from '../src/memory.js';
 // ─── Test harness ────────────────────────────────────────────────
 
 async function makeWorkspace(overrides = {}) {
-  const dir = await mkdtemp(join(tmpdir(), 'openfox-memory-test-'));
+  const dir = await mkdtemp(join(tmpdir(), 'openhearth-memory-test-'));
   const config = {
     workspace: dir,
     memory: {
@@ -38,7 +38,7 @@ async function makeWorkspace(overrides = {}) {
         configFile: 'COMPACTION_CONFIG.md',
         triggerThresholdTokens: 500,
         triggerMaxAgeHours: 48,
-        lastCompactionFile: '.openfox/last-compaction.json',
+        lastCompactionFile: '.openhearth/last-compaction.json',
         ...overrides.compaction,
       },
     },

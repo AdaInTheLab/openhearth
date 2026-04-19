@@ -1,5 +1,5 @@
 /**
- * memory.js — tiered workspace memory for an OpenFox agent.
+ * memory.js — tiered workspace memory for an OpenHearth agent.
  *
  * Spec: docs/MEMORY_DESIGN.md
  *
@@ -54,7 +54,7 @@ const DEFAULTS = {
     configFile: 'COMPACTION_CONFIG.md',
     triggerThresholdTokens: 12000,
     triggerMaxAgeHours: 48,
-    lastCompactionFile: '.openfox/last-compaction.json',
+    lastCompactionFile: '.openhearth/last-compaction.json',
   },
 };
 
