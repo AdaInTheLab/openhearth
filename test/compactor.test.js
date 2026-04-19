@@ -166,6 +166,75 @@ test('compact handles backend errors gracefully', async (t) => {
 
 // ─── pruneRecovery ──────────────────────────────────────────────
 
+// ─── Drift mode + drifter ───────────────────────────────────────
+
+test('compact in drift mode only touches the oldest month-group', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  const cfg = { ...ws.config.memory.tiers, compaction: ws.config.memory.compaction };
+  compactor.init({ memory, aiBackend: makeFakeBackend({ name: 'test:v1' }), cfg });
+
+  // Plant files in two different months, both old enough
+  await memory.write(`memory/${dayOffsetISO(60)}.md`, 'feb entry');
+  await memory.write(`memory/${dayOffsetISO(40)}.md`, 'march entry one');
+  await memory.write(`memory/${dayOffsetISO(41)}.md`, 'march entry two');
+
+  const result = await compactor.compact({ trigger: { reason: 'test' }, mode: 'drift' });
+
+  // Drift compacted only one month-group (the oldest)
+  assert.equal(result.compacted, 1);
+
+  // The newer month is still in warm
+  const warmAfter = await memory.listTier('warm');
+  assert.ok(warmAfter.some(p => p.includes(dayOffsetISO(40)) || p.includes(dayOffsetISO(41))),
+    `expected newer month files still in warm, got: ${warmAfter.join(', ')}`);
+});
+
+test('driftOnce is silent no-op when nothing is old enough', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  const cfg = { ...ws.config.memory.tiers, compaction: ws.config.memory.compaction };
+  compactor.init({ memory, aiBackend: makeFakeBackend(), cfg });
+  // Only fresh files
+  await memory.write(`memory/${dayOffsetISO(2)}.md`, 'fresh');
+  const result = await compactor.driftOnce();
+  assert.equal(result.compacted, 0);
+  assert.equal(result.reason, 'no_candidates');
+  // Fresh file untouched
+  assert.ok(await memory.read(`memory/${dayOffsetISO(2)}.md`));
+});
+
+test('drift never touches pinned/ files', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  const cfg = { ...ws.config.memory.tiers, compaction: ws.config.memory.compaction };
+  compactor.init({ memory, aiBackend: makeFakeBackend(), cfg });
+
+  // Plant an old file in pinned/ (named like a daily file)
+  await memory.write(`memory/pinned/${dayOffsetISO(60)}.md`, 'pinned old project');
+  // And a regular old warm file
+  await memory.write(`memory/${dayOffsetISO(60)}.md`, 'regular warm');
+
+  await compactor.driftOnce();
+
+  // Pinned file survives
+  assert.ok(await memory.read(`memory/pinned/${dayOffsetISO(60)}.md`));
+  // Regular warm got compacted (gone from memory/)
+  assert.equal(await memory.read(`memory/${dayOffsetISO(60)}.md`), null);
+});
+
+test('startDrifter is idempotent and stopDrifter is safe', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  const cfg = { ...ws.config.memory.tiers, compaction: { ...ws.config.memory.compaction, drift: { intervalMinutes: 60 } } };
+  compactor.init({ memory, aiBackend: makeFakeBackend(), cfg });
+  compactor.startDrifter();
+  compactor.startDrifter(); // second call replaces the first cleanly
+  compactor.stopDrifter();
+  compactor.stopDrifter(); // safe to double-stop
+  assert.equal(true, true);
+});
+
 test('pruneRecovery deletes files past retention window', async (t) => {
   const ws = await makeWorkspace({ originals: { retentionDays: 30 } });
   t.after(ws.cleanup);

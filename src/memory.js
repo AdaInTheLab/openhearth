@@ -39,7 +39,10 @@ const DEFAULTS = {
   },
   warm: {
     dir: 'memory',
-    ageThresholdDays: 30,
+    // Files older than this become eligible for compaction. Lower
+    // means more aggressive drift; higher means a longer recent
+    // window in the warm tier.
+    ageThresholdDays: 14,
   },
   cold: {
     dir: 'archive',
@@ -52,9 +55,19 @@ const DEFAULTS = {
   compaction: {
     promptFile: 'COMPACTION_PROMPT.md',
     configFile: 'COMPACTION_CONFIG.md',
-    triggerThresholdTokens: 12000,
-    triggerMaxAgeHours: 48,
+    // Reactive trigger thresholds (used by triggerCompactionIfNeeded()).
+    // Effectively disabled by default — modern openhearth deployments
+    // should use the ambient drifter instead, see drift.* below.
+    triggerThresholdTokens: 999_999_999,
+    triggerMaxAgeHours: 999_999,
     lastCompactionFile: '.openhearth/last-compaction.json',
+    // Ambient drift: small steady passes that keep the warm tier
+    // tidy without the agent ever noticing memory pressure.
+    drift: {
+      enabled: false,         // opt-in; new agents wire this on once
+                              // they've shipped their COMPACTION_PROMPT.md
+      intervalMinutes: 240,   // every 4 hours, slow and quiet
+    },
   },
 };
 
@@ -448,8 +461,12 @@ async function loadBootstrapContext() {
     const parts = [];
     if (truncated.length > 0) parts.push(`truncated: ${truncated.map(t => `${t.filename} (${t.kept}/${t.total})`).join(', ')}`);
     if (skipped.length > 0) parts.push(`skipped: ${skipped.map(s => `${s.filename}`).join(', ')}`);
-    log.warn(`Hot tier exceeded ${budget}-token budget — ${parts.join('; ')}`);
-    sections.unshift(`--- ⚠ HOT TIER OVER BUDGET ---\n${parts.join('\n')}\n\nCompaction will trigger on next heartbeat.`);
+    // Log so a human (operator) can see budget pressure, but DO NOT
+    // surface to bootstrap context. Per Sage's principle (2026-04-19):
+    // "the agent shouldn't be aware of its own memory pressure any
+    // more than you're aware of your brain's garbage collection."
+    // The drifter handles this in the background.
+    log.warn(`Hot tier silently truncated to ${budget}-token budget — ${parts.join('; ')}`);
   }
 
   return sections.join('\n\n');

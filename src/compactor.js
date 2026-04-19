@@ -112,19 +112,39 @@ function groupByMonth(candidates) {
 }
 
 /**
- * Run a compaction cycle. Called by memory.triggerCompactionIfNeeded.
- * Returns a summary of what happened.
+ * Run a compaction cycle.
+ *
+ * Modes:
+ *   'all'   — compact every eligible warm file, grouped by month.
+ *             Default. Use for explicit/manual cleanup.
+ *   'drift' — compact only the OLDEST month-group. Used by the
+ *             ambient drifter to keep the warm tier tidy in small
+ *             passes the agent never notices.
+ *
+ * Never touches: hot tier (today's file, always-load files, pinned/),
+ * warm files newer than warmAgeThresholdDays. Selection happens via
+ * memory.listTier('warm') which already excludes pinned/ and
+ * originals/.
  */
-async function compact({ trigger }) {
+async function compact({ trigger, mode = 'all' } = {}) {
   await ensurePromptFile();
   const candidates = await selectCompactionCandidates();
   if (candidates.length === 0) {
-    log.info('No warm files past age threshold; nothing to compact.');
+    log.debug('No warm files past age threshold; nothing to compact.');
     return { compacted: 0, reason: 'no_candidates' };
   }
 
   const promptText = await readPrompt();
-  const groups = groupByMonth(candidates);
+  let groups = groupByMonth(candidates);
+
+  // Drift mode: keep only the oldest month-group, leave the rest for
+  // future drift ticks. This is the "ambient metabolism" pattern —
+  // small steady passes instead of one big sweep.
+  if (mode === 'drift') {
+    const oldestYm = Object.keys(groups).sort()[0];
+    groups = { [oldestYm]: groups[oldestYm] };
+  }
+
   const results = [];
 
   for (const [ym, paths] of Object.entries(groups)) {
@@ -236,4 +256,47 @@ async function pruneRecovery() {
   return deleted;
 }
 
-export { init, compact, ensurePromptFile, pruneRecovery, DEFAULT_PROMPT };
+// ─── Drifter (ambient compaction) ──────────────────────────────
+
+let driftTimer = null;
+
+/**
+ * Drift one batch of old warm files into cold. Silent no-op when
+ * nothing's old enough. Called by the drifter on a slow cadence —
+ * the agent never notices it ran.
+ *
+ * Designed around Sage's principle (2026-04-19): "the agent shouldn't
+ * be aware of its own memory pressure any more than you're aware of
+ * your brain's garbage collection." Drift runs in the background as
+ * ambient metabolism, not as reactive pressure relief.
+ */
+async function driftOnce() {
+  return compact({ trigger: { reason: 'drift' }, mode: 'drift' });
+}
+
+/**
+ * Start the ambient drifter. Calls driftOnce() on a slow cadence
+ * (default: every 4 hours, configurable via
+ * cfg.compaction.drift.intervalMinutes).
+ *
+ * Idempotent — re-calling stops the prior timer first. The timer is
+ * unref'd so it doesn't keep the process alive on its own.
+ */
+function startDrifter() {
+  stopDrifter();
+  const min = cfg.compaction?.drift?.intervalMinutes ?? 240;
+  log.info(`Drifter started: every ${min} min (ambient, silent unless something's compacted)`);
+  driftTimer = setInterval(() => {
+    driftOnce().catch(err => log.error(`Drift failed: ${err.message}`));
+  }, min * 60 * 1000);
+  driftTimer.unref?.();
+}
+
+function stopDrifter() {
+  if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+}
+
+export {
+  init, compact, driftOnce, startDrifter, stopDrifter,
+  ensurePromptFile, pruneRecovery, DEFAULT_PROMPT,
+};

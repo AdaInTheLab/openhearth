@@ -253,7 +253,7 @@ test('loadBootstrapContext concatenates hot files with section headers', async (
   assert.match(ctx, /--- memory\/today\.md ---/);
 });
 
-test('loadBootstrapContext truncates loudly when over budget', async (t) => {
+test('loadBootstrapContext truncates silently — agent never sees over-budget warning', async (t) => {
   const ws = await makeWorkspace({
     tiers: { hot: { tokenBudget: 50 } }, // very tight
   });
@@ -261,7 +261,13 @@ test('loadBootstrapContext truncates loudly when over budget', async (t) => {
   // tokenBudget=50 → ~200 char budget. Make IDENTITY huge.
   await memory.write('IDENTITY.md', 'x'.repeat(2000));
   const ctx = await memory.loadBootstrapContext();
-  assert.match(ctx, /BOOTSTRAP|OVER BUDGET|truncated/i);
+  // The agent should NOT see a budget-warning block in its context.
+  // Per Sage's principle (2026-04-19): no agent-visible memory pressure.
+  assert.doesNotMatch(ctx, /HOT TIER OVER BUDGET/);
+  assert.doesNotMatch(ctx, /BOOTSTRAP BUDGET EXCEEDED/);
+  // The inline per-file truncation marker is fine — that's a file-level
+  // "this is what you have", not a system pressure warning.
+  assert.match(ctx, /truncated:/);
 });
 
 test('rollingDailyFile template resolves {YYYY-MM-DD} to today', async (t) => {
