@@ -1,7 +1,7 @@
 /**
  * ollama.js — wrapper around a local Ollama server (`/api/chat`).
  *
- * Ollama is OpenHearth's local-first brain option:
+ * Ollama is openhearth's local-first brain option:
  *   - zero cost
  *   - zero network egress (model runs on the agent's host)
  *   - always available if the daemon is running

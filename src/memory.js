@@ -1,5 +1,5 @@
 /**
- * memory.js — tiered workspace memory for an OpenHearth agent.
+ * memory.js — tiered workspace memory for an openhearth agent.
  *
  * Spec: docs/MEMORY_DESIGN.md
  *

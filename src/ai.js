@@ -1,7 +1,7 @@
 /**
  * ai.js — the AI router. Picks between brain backends and tracks health.
  *
- * Two backends ship with OpenHearth:
+ * Two backends ship with openhearth:
  *   claude  — the Claude CLI (for agents on an Anthropic plan)
  *   ollama  — local Ollama daemon (always-available local fallback)
  *
