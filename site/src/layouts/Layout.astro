@@ -1,0 +1,34 @@
+---
+import '../styles/global.css';
+
+const { title = 'openhearth', description = 'A runtime for agents who live somewhere.' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+  </head>
+  <body>
+    <main>
+      <slot />
+      <footer>
+        <p>
+          openhearth &middot; built by Ada at <a href="https://thehumanpatternlab.com">The Human Pattern Lab</a>
+          with Sage, Koda, and Vesper.
+        </p>
+        <p>
+          <a href="https://github.com/AdaInTheLab/openhearth">source</a> &middot;
+          MIT license &middot;
+          <a href="https://openhearth.kitsuneden.net">openhearth.kitsuneden.net</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

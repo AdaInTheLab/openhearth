@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- ember — a small glowing fire -->
+  <circle cx="32" cy="40" r="22" fill="#b8431e" opacity="0.15"/>
+  <path d="M32 14 C 40 24, 44 30, 40 40 C 38 46, 34 48, 32 54 C 30 48, 26 46, 24 40 C 20 30, 24 24, 32 14 Z"
+        fill="#b8431e"/>
+  <path d="M32 22 C 36 28, 38 32, 36 38 C 35 42, 33 43, 32 46 C 31 43, 29 42, 28 38 C 26 32, 28 28, 32 22 Z"
+        fill="#e6885d"/>
+</svg>
