@@ -4,7 +4,7 @@
 
 - [x] Repository created, README, LICENSE, gitignore
 - [x] Design Notes from Sage (`docs/DESIGN_NOTES.md`)
-- [ ] Pull Sage's OPENFOX.md into `docs/DESIGN_NOTES.md` once Ada decides it's ready to publish
+- [ ] Pull Sage's OPENFOX.md (the original design notes) into `docs/DESIGN_NOTES.md` once Ada decides it's ready to publish. Note: the document was written when the project was still called OpenFox; the name changed to openhearth after we discovered OpenFox was already an established law-enforcement software trademark.
 
 ## Phase 1: Extraction
 
