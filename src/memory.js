@@ -200,6 +200,29 @@ async function search(pattern, { dir = '', maxMatches = 100, maxFileBytes = 500_
   return matches;
 }
 
+/**
+ * Resolve cfg.hot.rollingDailyFile to an actual path. Supports
+ * literal paths ('memory/today.md') and template paths with
+ * {YYYY-MM-DD} / {YYYY} / {MM} / {DD} placeholders. Templates are
+ * resolved on every call so the path stays correct across midnight
+ * rollover without runtime restart.
+ *
+ * Used by sage-runtime during the tier-model migration: her existing
+ * dated daily files (memory/2026-04-19.md) keep working as the hot
+ * file via a `memory/{YYYY-MM-DD}.md` template, with no behavior
+ * break at the day boundary.
+ */
+function resolveTodayPath() {
+  const tmpl = cfg.hot.rollingDailyFile;
+  if (!tmpl || !tmpl.includes('{')) return tmpl;
+  const today = new Date().toISOString().slice(0, 10);
+  return tmpl
+    .replace(/\{YYYY-MM-DD\}/g, today)
+    .replace(/\{YYYY\}/g, today.slice(0, 4))
+    .replace(/\{MM\}/g, today.slice(5, 7))
+    .replace(/\{DD\}/g, today.slice(8, 10));
+}
+
 // ─── Tier classification ────────────────────────────────────────
 
 /**
@@ -215,7 +238,7 @@ function tier(path) {
 
   if (cfg.hot.alwaysLoadFiles.includes(norm)) return 'hot';
   if (norm === cfg.hot.standingOrdersFile) return 'hot';
-  if (norm === cfg.hot.rollingDailyFile) return 'hot';
+  if (norm === resolveTodayPath()) return 'hot';
   if (norm.startsWith(cfg.hot.pinnedDir + '/')) return 'hot';
 
   if (norm.startsWith(cfg.cold.dir + '/')) return 'cold';
@@ -239,7 +262,8 @@ async function listTier(tierName) {
     if (cfg.hot.standingOrdersFile && await exists(cfg.hot.standingOrdersFile)) {
       out.push(cfg.hot.standingOrdersFile);
     }
-    if (await exists(cfg.hot.rollingDailyFile)) out.push(cfg.hot.rollingDailyFile);
+    const todayPath = resolveTodayPath();
+    if (await exists(todayPath)) out.push(todayPath);
     const pinned = await list(cfg.hot.pinnedDir);
     for (const e of pinned) {
       if (!e.isDirectory) out.push(join(cfg.hot.pinnedDir, e.name).replace(/\\/g, '/'));
@@ -248,7 +272,7 @@ async function listTier(tierName) {
     const entries = await list(cfg.warm.dir);
     for (const e of entries) {
       if (e.isDirectory) continue;
-      if (e.name === basename(cfg.hot.rollingDailyFile)) continue;
+      if (e.name === basename(resolveTodayPath())) continue;
       out.push(join(cfg.warm.dir, e.name).replace(/\\/g, '/'));
     }
   } else if (tierName === 'cold') {
@@ -331,9 +355,10 @@ async function promote(path) {
 // ─── Bootstrap context loader ───────────────────────────────────
 
 function getTodayMemoryPath() {
-  // Spec says "rolling today.md" — the agent writes here, the rotator
-  // moves it to a dated filename at midnight.
-  return cfg.hot.rollingDailyFile;
+  // Returns the resolved rolling daily file path. With a literal config
+  // value ('memory/today.md') this is unchanged; with a template
+  // ('memory/{YYYY-MM-DD}.md') this resolves to today's actual path.
+  return resolveTodayPath();
 }
 
 function estimateTokens(text) {

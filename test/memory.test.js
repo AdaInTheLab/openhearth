@@ -264,6 +264,24 @@ test('loadBootstrapContext truncates loudly when over budget', async (t) => {
   assert.match(ctx, /BOOTSTRAP|OVER BUDGET|truncated/i);
 });
 
+test('rollingDailyFile template resolves {YYYY-MM-DD} to today', async (t) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const ws = await makeWorkspace({
+    tiers: { hot: { rollingDailyFile: 'memory/{YYYY-MM-DD}.md' } },
+  });
+  t.after(ws.cleanup);
+  await memory.write(`memory/${today}.md`, 'today entry');
+  // Path resolves correctly
+  assert.equal(memory.getTodayMemoryPath(), `memory/${today}.md`);
+  // Tier classification recognizes it as hot
+  assert.equal(memory.tier(`memory/${today}.md`), 'hot');
+  // Older dated files in memory/ are warm, not hot
+  assert.equal(memory.tier('memory/2025-01-01.md'), 'warm');
+  // Bootstrap loader includes it
+  const ctx = await memory.loadBootstrapContext();
+  assert.match(ctx, /today entry/);
+});
+
 test('loadBootstrapContext loads pinned files', async (t) => {
   const ws = await makeWorkspace();
   t.after(ws.cleanup);
