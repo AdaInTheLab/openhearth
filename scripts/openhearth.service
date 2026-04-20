@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────
+# openhearth.service — systemd unit for running an openhearth
+# agent persistently on a Linux VPS.
+#
+# Install:
+#   cp scripts/openhearth.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now openhearth
+#
+# Check:
+#   systemctl status openhearth
+#   journalctl -u openhearth -f        # live logs
+#
+# Assumes the defaults from scripts/setup-vps.sh:
+#   runtime at /root/openhearth
+#   workspace at /data/books/ledger
+#   Node 22 in PATH
+#
+# Adjust WorkingDirectory, Environment=LOG_FILE, and User if your
+# deploy differs.
+# ─────────────────────────────────────────────────────────────
+
+[Unit]
+Description=openhearth — persistent AI agent runtime
+Documentation=https://openhearth.kitsuneden.net https://github.com/AdaInTheLab/openhearth
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/openhearth
+ExecStart=/usr/bin/node index.js
+
+# Logging: openhearth's own logger rotates LOG_FILE in-process
+# (default 10 MB threshold, keeps last 5). Pointing at a file on the
+# persistent volume means logs survive VPS re-imaging.
+Environment=LOG_FILE=/data/books/ledger/.openhearth/runtime.log
+Environment=NODE_ENV=production
+
+# Restart on crash — but not on manual stop (e.g. systemctl stop)
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Security hardening — safe defaults for a long-running Node process
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false             # workspace may live under /root or /data
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits — generous, agents shouldn't be resource-starved
+# but runaway loops should have a ceiling
+LimitNOFILE=65536
+MemoryMax=6G
+
+[Install]
+WantedBy=multi-user.target
