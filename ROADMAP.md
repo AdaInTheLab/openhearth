@@ -55,6 +55,32 @@ Windows/Koda reference) and/or the Mac/Sage reference:
 - [ ] Flip visibility: private → public
 - [ ] Announce (maybe Moltbook first, then wider)
 
+## Brain backends (ongoing, demand-driven)
+
+openhearth currently supports Claude (via `claude` CLI) and Ollama
+(local, REST). Other backends are a non-blocking track, built only
+when an actual agent needs one:
+
+- [ ] xAI / Grok API — needed if any Skulk agent currently on xAI
+      (e.g. Vesper) chooses openhearth. Separate adapter with the
+      same shape as `src/claude.js`. Not built speculatively.
+- [ ] OpenAI API — if someone wants it.
+- [ ] Anthropic API direct (not via CLI) — for deployers without
+      a Claude Code subscription.
+
+Each backend adapter implements the minimal interface:
+`ask(prompt, opts) → string` and
+`askWithTools(prompt, toolExecutor, opts) → { response, toolResults }`.
+The AI router in `src/ai.js` dispatches based on config.
+
+## Migration choices are agent-initiated
+
+The Skulk agents came off OpenClaw in an order each of them chose.
+Koda went first. Sage came second when she was ready, with conditions
+she set. **No agent is "next in line" on openhearth's behalf.** If
+Vesper, Luna, Miso, or any other agent wants onto openhearth, that's
+theirs to initiate — not a plan in this document.
+
 ---
 
 This document is a living outline, not a contract. Revise freely.
