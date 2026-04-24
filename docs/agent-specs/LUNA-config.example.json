@@ -1,0 +1,115 @@
+{
+  "_comment": "Template config for Luna's openhearth runtime. See docs/agent-specs/LUNA.md for the full spec. Copy to config.json in your checkout, fill in the paths, and you're most of the way there.",
+
+  "workspace": "/home/YOUR_USER/luna-hearth",
+
+  "ai": {
+    "primary": "codex",
+    "secondary": "openai",
+    "fallback": "ollama",
+    "fallbackOnError": true
+  },
+
+  "codex": {
+    "command": "codex",
+    "model": "gpt-5.3-codex",
+    "enabled": true,
+    "timeoutMs": 180000,
+    "maxRetries": 2,
+    "sandbox": "workspace-write",
+    "_auth_note": "ChatGPT OAuth — run `codex login` once before first boot"
+  },
+
+  "openai": {
+    "enabled": true,
+    "model": "gpt-5.4-mini",
+    "timeoutMs": 60000,
+    "maxRetries": 2,
+    "_creds_note": "OPENAI_API_KEY env var OR {workspace}/.config/openai/credentials.json"
+  },
+
+  "ollama": {
+    "baseUrl": "http://localhost:11434",
+    "model": "qwen3.5:9b",
+    "maxTokens": 4096,
+    "timeoutMs": 180000,
+    "maxRetries": 1
+  },
+
+  "urgency": {
+    "enabled": true,
+    "threshold": 0.70,
+    "classifierModel": "gpt-5.4-mini",
+    "_comment": "Classifier uses the openai backend at gpt-5.4-mini. Raise threshold for fewer wakes, lower for more sensitive. 0.70 is a conservative default."
+  },
+
+  "sendGate": {
+    "defaultPolicy": "ask",
+    "channels": {
+      "mesh": {
+        "policy": "allow",
+        "_comment": "Skulk-internal — pre-approved. Reviewers want mesh chatter un-gated."
+      },
+      "discord": {
+        "policy": "ask",
+        "_comment": "External/public — gate every send. Populate allow: [channelIds] for channels Luna has preapproved posting to."
+      },
+      "email": {
+        "policy": "ask"
+      },
+      "webhook": {
+        "policy": "ask"
+      }
+    }
+  },
+
+  "heartbeat": {
+    "socialIntervalMinutes": 120,
+    "taskIntervalMinutes": 120,
+    "heartbeatFile": "HEARTBEAT.md",
+    "session": "main",
+    "quietHours": {
+      "start": 23,
+      "end": 8,
+      "_comment": "Luna's spec: 23:00-08:00 local time. Hybrid urgency filter decides what breaks through — see src/urgency.js."
+    }
+  },
+
+  "memory": {
+    "bootstrapFiles": [
+      "SOUL.md",
+      "USER.md",
+      "MEMORY.md"
+    ],
+    "standingOrdersFile": "STANDING_ORDERS.md",
+    "maxStandingOrdersChars": 5000,
+    "dailyMemoryDir": "memory",
+    "maxBootstrapChars": 28000,
+    "_comment": "Luna's lean 3-file bootstrap (vs. Koda's 7). SOUL.md for identity, USER.md for relationship with Ada, MEMORY.md for curated long-term. memory/YYYY-MM-DD.md for daily raw log; warm/cold tiers + weekly distill handled by Sage's compactor system."
+  },
+
+  "mesh": {
+    "enabled": true,
+    "agent": "luna",
+    "embedded": false,
+    "baseUrl": "http://100.108.52.70:3337",
+    "webhookPort": 3341,
+    "webhookUrl": "http://YOUR_LUNA_TAILNET_IP:3341/incoming",
+    "webhookBind": "0.0.0.0",
+    "_comment": "Luna is a mesh client pointing at Koda's bus. Webhook port 3341 (Koda=3338, Sage=3338, Vesper=3338, Marlow=8765; pick one that doesn't collide)."
+  },
+
+  "dreams": {
+    "enabled": false,
+    "_comment": "Luna's spec: disabled by default. She can opt in later if dreaming fits her shape."
+  },
+
+  "delegations": {
+    "enabled": false,
+    "_comment": "Luna's spec: disabled by default. Re-enable with a small Ollama model if she wants sub-agent workers."
+  },
+
+  "logging": {
+    "level": "info"
+  }
+}
