@@ -292,7 +292,13 @@ async function handleMessage(message, accountConfig, clientUser) {
     if (session?.claudeInitialized) await sessions.markInitialized(sessionKey);
 
     if (!response || response.length === 0) {
-      log.warn('Empty response from AI');
+      // Debug: dump what the AI *did* emit, so we can see whether she
+      // called a tool, emitted a QUIET marker, or produced whitespace.
+      // toolResults captures what parseToolCalls extracted before stripping.
+      const toolSummary = toolResults.length > 0
+        ? toolResults.map(r => `${r.call.tool}${r.success ? '' : ' (error)'}`).join(', ')
+        : 'none';
+      log.warn(`Empty text response from AI — tools called: ${toolSummary}`);
       try { await message.react('🤔'); } catch {}
       return;
     }
