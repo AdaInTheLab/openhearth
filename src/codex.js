@@ -165,12 +165,13 @@ function runCodex(prompt, { model, session, images } = {}) {
       args = ['exec'];
     }
 
-    // Common flags for both exec and resume
-    args.push(
-      '--json',
-      '--ask-for-approval', 'never',
-      '--sandbox', codexConfig.sandbox || 'workspace-write',
-    );
+    // Common flags for both exec and resume. `--full-auto` is the
+    // "convenience alias for low-friction sandboxed automatic execution"
+    // that bundles sandbox=workspace-write + auto-approval; it replaces
+    // the older --ask-for-approval/--sandbox pair the CLI no longer
+    // accepts on `exec`. Keep config.codex.sandbox for future overrides
+    // but don't emit it as a flag when --full-auto is set.
+    args.push('--json', '--full-auto');
 
     if (model || codexConfig.model) {
       args.push('-m', model || codexConfig.model);
