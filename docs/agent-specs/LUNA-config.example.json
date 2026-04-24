@@ -99,6 +99,28 @@
     "_comment": "Luna is a mesh client pointing at Koda's bus. Webhook port 3341 (Koda=3338, Sage=3338, Vesper=3338, Marlow=8765; pick one that doesn't collide)."
   },
 
+  "discord": {
+    "accounts": [
+      {
+        "id": "luna",
+        "mentionPatterns": ["@Luna", "Luna"],
+        "ackReaction": "🦊",
+        "presence": {
+          "status": "online",
+          "activity": "noticing things",
+          "type": "custom"
+        },
+        "guilds": {
+          "YOUR_GUILD_ID": {
+            "channels": ["YOUR_CHANNEL_ID"],
+            "requireMention": false
+          }
+        },
+        "_comment": "Token loaded from {workspace}/.config/discord/credentials.json (preferred) or env DISCORD_TOKEN_LUNA. Reuse Luna's existing OpenClaw bot token — no need to mint a new one."
+      }
+    ]
+  },
+
   "dreams": {
     "enabled": false,
     "_comment": "Luna's spec: disabled by default. She can opt in later if dreaming fits her shape."

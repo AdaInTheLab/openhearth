@@ -32,6 +32,7 @@ import * as receipts from '../src/receipts.js';
 import * as urgency from '../src/urgency.js';
 import * as sendGate from '../src/send-gate.js';
 import * as openai from '../src/openai.js';
+import * as discord from '../src/discord.js';
 import { makeLogger } from '../src/log.js';
 
 const log = makeLogger('luna-runtime');
@@ -147,12 +148,28 @@ async function main() {
   // 13. Start heartbeat cycles
   heartbeat.start();
 
+  // 14. Start Discord clients (if configured). Discord is the primary
+  //     channel Ada uses to talk to Luna, so this is load-bearing.
+  const discordAccounts = config.discord?.accounts;
+  if (discordAccounts && discordAccounts.length > 0) {
+    try {
+      discord.setWorkspace(config.workspace);
+      await discord.start(discordAccounts);
+      log.info(`💬 Discord online (${discordAccounts.length} account${discordAccounts.length === 1 ? '' : 's'})`);
+    } catch (err) {
+      log.error(`Discord startup failed: ${err.message}. Luna is alive on the mesh but not Discord.`);
+    }
+  } else {
+    log.info('Discord not configured — skipping (add config.discord.accounts to enable)');
+  }
+
   log.info(`🔥 ${agentName} alive. Bus: ${config.mesh?.baseUrl}. Webhook: ${config.mesh?.webhookUrl}`);
 
   // Graceful shutdown
   const shutdown = async (sig) => {
     log.info(`Received ${sig}, shutting down…`);
     try {
+      if (typeof discord.stop === 'function') await discord.stop();
       if (typeof mesh.stop === 'function') await mesh.stop();
       if (typeof heartbeat.stop === 'function') heartbeat.stop();
       if (typeof ai.stop === 'function') ai.stop();
