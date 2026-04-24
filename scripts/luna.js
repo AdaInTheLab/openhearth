@@ -67,58 +67,60 @@ async function main() {
   log.info(`workspace: ${config.workspace}`);
   log.info(`ai chain: ${[config.ai?.primary, config.ai?.secondary, config.ai?.fallback].filter(Boolean).join(' → ')}`);
 
-  // 1. Hooks first — so other modules can emit into it on init
-  hooks.init(config);
+  // 1. Memory — bootstrap context loader (needs to init first; hooks + tools depend on it)
+  memory.init(config);
 
-  // 2. Receipts — needs workspace; wire hooks as emitter
-  receipts.init(config, {
-    hooksEmitter: (name, data) => hooks.emit(name, data),
-  });
+  // 2. Tools — inject memory so file/search tools work
+  tools.init({ memory });
 
-  // 3. AI router — brings codex/openai/ollama online; runs the auth watchdog
+  // 3. AI router — brings codex/openai/ollama online
   ai.init(config);
+
+  // 4. Hooks — needs memory (reads HOOKS.md). ai + executor are module
+  //    references, safe to pass even though they may not be fully
+  //    initialized (we're storing refs, not invoking yet).
+  hooks.init(config, { memory, ai, executor: tools.execute });
+
+  // 5. Now wire ai's emitter/alert path — hooks.emit exists because hooks.init ran
   ai.setHooksEmitter((name, data) => hooks.emit(name, data));
   ai.setAlertCallback(async (text) => {
-    // Simple alert path — log it, emit as a hook. Luna can add a
-    // Discord notifier layer later if she wants auth alerts pushed.
     log.warn(`ALERT: ${text}`);
     await hooks.emit('ai_alert', { text });
   });
 
-  // 4. Urgency — classifier backend is openai (Mini model)
+  // 6. Receipts — needs workspace; wire hooks as emitter
+  receipts.init(config, {
+    hooksEmitter: (name, data) => hooks.emit(name, data),
+  });
+
+  // 7. Urgency — classifier backend is openai (Mini model)
   urgency.init(config, { classifier: openai });
 
-  // 5. Send-gate — action logger wires to receipts
+  // 8. Send-gate — action logger wires to receipts
   sendGate.init(config, {
     actionLogger: (entry) => receipts.logAction(entry),
     // confirmHandler left undefined for now; "ask" channels default to refuse
     // until a confirmation UI is wired (Discord / terminal prompt / etc.)
   });
 
-  // 6. Memory — bootstrap context loader
-  memory.init(config);
-
-  // 7. Tools — inject memory so file/search tools work
-  tools.init({ memory });
-
-  // 8. Mesh — the client + webhook receiver
+  // 9. Mesh — the client + webhook receiver
   mesh.init(config, {
     memory,
     ai,
-    toolsExecutor: tools.execute ?? (async () => { throw new Error('tools.execute not available'); }),
-    getToolsPrompt: tools.getToolsPrompt ?? (() => ''),
+    toolsExecutor: tools.execute,
+    getToolsPrompt: tools.getToolsPrompt,
     hooksEmitter: (name, data) => hooks.emit(name, data),
     onTick: (source) => {
       receipts.logWake({ wake: true, reason: 'mesh_message' }, { source }).catch(() => {});
     },
   });
 
-  // 9. Heartbeat — the agent's pulse
+  // 10. Heartbeat — the agent's pulse
   heartbeat.init(config, {
     ai,
     memory,
-    toolsExecutor: tools.execute ?? (async () => { throw new Error('tools.execute not available'); }),
-    getToolsPrompt: tools.getToolsPrompt ?? (() => ''),
+    toolsExecutor: tools.execute,
+    getToolsPrompt: tools.getToolsPrompt,
     onTick: (type) => {
       receipts.logWake({ wake: true, reason: `heartbeat_${type}` }).catch(() => {});
     },
@@ -136,13 +138,13 @@ async function main() {
     ],
   });
 
-  // 10. Startup auth probe (for Codex OAuth or Claude login)
+  // 11. Startup auth probe (for Codex OAuth or Claude login)
   await ai.startupAuthCheck();
 
-  // 11. Start mesh receiver + register webhook
+  // 12. Start mesh receiver + register webhook
   await mesh.start();
 
-  // 12. Start heartbeat cycles
+  // 13. Start heartbeat cycles
   heartbeat.start();
 
   log.info(`🔥 ${agentName} alive. Bus: ${config.mesh?.baseUrl}. Webhook: ${config.mesh?.webhookUrl}`);
