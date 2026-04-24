@@ -216,7 +216,7 @@ test('parseCodexJsonStream handles empty input', () => {
 test('parseCodexJsonStream ignores non-JSON lines', () => {
   const stream = [
     'some log noise not json',
-    JSON.stringify({ type: 'done', message: { content: 'real text' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'real text' } }),
     '(another junk line)',
   ].join('\n');
   const { text } = codex.parseCodexJsonStream(stream);
@@ -235,13 +235,18 @@ test('parseCodexJsonStream captures session_id from various shapes', () => {
   }
 });
 
-test('parseCodexJsonStream prefers done event over accumulated deltas', () => {
+test('parseCodexJsonStream joins multiple agent_message items in order', () => {
+  // Current Codex shape: item.completed events can arrive multiple times
+  // (thinking then response, or multi-part messages). Parser concatenates
+  // them in arrival order.
   const stream = [
-    JSON.stringify({ type: 'delta', text: 'partial' }),
-    JSON.stringify({ type: 'done', message: { content: 'final' } }),
+    JSON.stringify({ type: 'thread.started', thread_id: 'abc' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'part one ' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'part two' } }),
   ].join('\n');
-  const { text } = codex.parseCodexJsonStream(stream);
-  assert.equal(text, 'final');
+  const { text, sessionId } = codex.parseCodexJsonStream(stream);
+  assert.equal(text, 'part one part two');
+  assert.equal(sessionId, 'abc');
 });
 
 test('parseCodexJsonStream accumulates deltas when no done event', () => {

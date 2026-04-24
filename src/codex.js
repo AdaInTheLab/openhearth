@@ -250,21 +250,28 @@ function runCodex(prompt, { model, session, images } = {}) {
 /**
  * Parse Codex's newline-delimited JSON event stream.
  *
- * Events we care about (schema based on Codex CLI docs + observed output):
- *   - session.start / session — contains session_id
- *   - message / assistant_message — assistant text (may stream in deltas
- *     or arrive as a single final message)
- *   - error — error event
+ * Verified format (observed from `codex exec --json --full-auto`, 2026-04-24):
  *
- * We're tolerant of schema drift — unknown events are ignored.
- * Final text is accumulated from any role:"assistant" content or
- * text/content fields we encounter.
+ *   {"type":"thread.started","thread_id":"019dc090-..."}
+ *   {"type":"turn.started"}
+ *   {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}
+ *   {"type":"turn.completed","usage":{"input_tokens":..,"output_tokens":..}}
+ *
+ * Key mappings vs my earlier guesses:
+ *   - Session ID lives on `thread.started.thread_id` (not session_id)
+ *   - Assistant text is `item.completed` where `item.type === "agent_message"`
+ *     and the text is in `item.text`
+ *   - No streaming deltas in --json mode; items arrive whole
+ *   - turn.completed carries usage stats; no text payload
+ *
+ * We also keep tolerant fallbacks for older/other shapes seen in earlier
+ * Codex versions (assistant_message type, message with role:"assistant")
+ * so a future schema shift doesn't silently break the parser again.
  */
 function parseCodexJsonStream(stdout) {
   const lines = stdout.split('\n').map(l => l.trim()).filter(Boolean);
   let sessionId = null;
   const textParts = [];
-  let finalMessage = null;
   const errors = [];
 
   for (const line of lines) {
@@ -272,25 +279,44 @@ function parseCodexJsonStream(stdout) {
     try { event = JSON.parse(line); }
     catch { continue; } // skip non-JSON lines (log noise etc)
 
-    // Session ID capture — tolerant of schema variations
+    // ─── Session ID capture ────────────────────────────────
+    // Current Codex shape:
+    if (event.type === 'thread.started' && event.thread_id) {
+      sessionId = sessionId || event.thread_id;
+    }
+    // Fallbacks (older/other shapes)
     const sid = event.session_id || event.sessionId || event.session?.id || (event.type === 'session_start' && event.id);
     if (sid && !sessionId) sessionId = sid;
 
-    // Errors
+    // ─── Errors ────────────────────────────────────────────
     if (event.type === 'error' || event.error) {
       errors.push(event.error || event.message || JSON.stringify(event));
     }
 
-    // Assistant content — look in several shapes
-    // Shape A: { type: "message", role: "assistant", content: "..." }
-    if (event.role === 'assistant' && typeof event.content === 'string') {
-      textParts.push(event.content);
+    // ─── Assistant text — current Codex shape ─────────────
+    // item.completed with item.type === "agent_message" is the main carrier
+    if (event.type === 'item.completed' && event.item) {
+      const item = event.item;
+      // agent_message is the verified primary type for assistant prose
+      if (item.type === 'agent_message' && typeof item.text === 'string') {
+        textParts.push(item.text);
+      }
+      // Generic fallback: any item with a text field
+      else if (typeof item.text === 'string' && item.type !== 'reasoning') {
+        textParts.push(item.text);
+      }
     }
-    // Shape B: { type: "assistant_message", text: "..." }
+
+    // ─── Assistant text — legacy/alternate shapes ─────────
+    // Shape: { type: "assistant_message", text: "..." }
     if (event.type === 'assistant_message' && typeof event.text === 'string') {
       textParts.push(event.text);
     }
-    // Shape C: { type: "message", message: { role: "assistant", content: [...] } }
+    // Shape: { role: "assistant", content: "..." }
+    if (event.role === 'assistant' && typeof event.content === 'string') {
+      textParts.push(event.content);
+    }
+    // Shape: { type: "message", message: { role: "assistant", content: ... } }
     if (event.message?.role === 'assistant') {
       const content = event.message.content;
       if (typeof content === 'string') textParts.push(content);
@@ -301,31 +327,17 @@ function parseCodexJsonStream(stdout) {
         }
       }
     }
-    // Shape D: final "done" event with complete message
-    if ((event.type === 'done' || event.type === 'completion') && event.message) {
-      finalMessage = event.message.content || event.message.text || finalMessage;
-    }
-    // Shape E: delta streaming
-    if (event.type === 'delta' && event.text) {
+    // Shape: delta streaming (speculative)
+    if (event.type === 'delta' && typeof event.text === 'string') {
       textParts.push(event.text);
     }
   }
 
-  if (errors.length > 0 && textParts.length === 0 && !finalMessage) {
+  if (errors.length > 0 && textParts.length === 0) {
     throw new Error(errors.join('; '));
   }
 
-  // Prefer the final "done" message if we captured one; otherwise join all parts
-  let text;
-  if (finalMessage) {
-    text = typeof finalMessage === 'string'
-      ? finalMessage
-      : JSON.stringify(finalMessage);
-  } else {
-    text = textParts.join('');
-  }
-
-  return { text: text.trim(), sessionId };
+  return { text: textParts.join('').trim(), sessionId };
 }
 
 /**

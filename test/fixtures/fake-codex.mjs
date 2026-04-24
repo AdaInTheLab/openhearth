@@ -50,19 +50,19 @@ process.stdin.on('end', async () => {
   const sessionId = process.env.FAKE_CODEX_SESSION || 'fake-session-abc123';
   const shape = process.env.FAKE_CODEX_SHAPE || 'done';
 
-  // Always emit a session_start-ish event first so tests exercise session capture
-  emit({ type: 'session_start', session_id: sessionId });
-
   switch (shape) {
     case 'error':
+      emit({ type: 'thread.started', thread_id: sessionId });
       emit({ type: 'error', error: responseText });
       break;
 
     case 'assistant_string':
+      emit({ type: 'session_start', session_id: sessionId });
       emit({ type: 'message', role: 'assistant', content: responseText });
       break;
 
     case 'assistant_array':
+      emit({ type: 'session_start', session_id: sessionId });
       emit({
         type: 'message',
         message: {
@@ -73,15 +73,28 @@ process.stdin.on('end', async () => {
       break;
 
     case 'deltas':
-      // Stream the response as small deltas
+      emit({ type: 'session_start', session_id: sessionId });
       for (let i = 0; i < responseText.length; i += 3) {
         emit({ type: 'delta', text: responseText.slice(i, i + 3) });
       }
       break;
 
     case 'done':
+      // Legacy shape kept for backwards-compat tests (was the pre-2026-04-24
+      // guessed default). Matches old finalMessage handling via message.content.
+      emit({ type: 'session_start', session_id: sessionId });
+      emit({ type: 'message', role: 'assistant', content: responseText });
+      break;
+
+    case 'codex':
     default:
-      emit({ type: 'done', message: { content: responseText } });
+      // Real Codex CLI format (verified against `codex exec --json --full-auto`
+      // on 2026-04-24). thread.started carries the session id; item.completed
+      // with item.type === "agent_message" carries the assistant text.
+      emit({ type: 'thread.started', thread_id: sessionId });
+      emit({ type: 'turn.started' });
+      emit({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: responseText } });
+      emit({ type: 'turn.completed', usage: { input_tokens: 13, cached_input_tokens: 0, output_tokens: 5 } });
       break;
   }
 
