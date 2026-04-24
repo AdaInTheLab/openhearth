@@ -1,51 +1,73 @@
 /**
  * ai.js — the AI router. Picks between brain backends and tracks health.
  *
- * Two backends ship with openhearth:
- *   claude  — the Claude CLI (for agents on an Anthropic plan)
+ * Four backends ship with openhearth:
+ *   claude  — the Claude CLI (for agents on an Anthropic plan, e.g. Koda/Sage)
+ *   codex   — the OpenAI Codex CLI (ChatGPT OAuth, e.g. Luna)
+ *   xai     — xAI chat completions API (e.g. Vesper on Grok)
+ *   openai  — OpenAI chat completions API (e.g. Luna's Mini tier + urgency classifier)
  *   ollama  — local Ollama daemon (always-available local fallback)
  *
- * The router supports four call shapes:
- *   ask()          — primary backend, with auto-fallback to fallback if
- *                    primary is unhealthy
+ * Routing supports up to **three tiers**:
+ *   primary   — first choice (e.g. "codex")
+ *   secondary — tried if primary fails hard (e.g. "openai" Mini fallback)
+ *   fallback  — last-resort tier (e.g. "ollama" for offline/quota-safe)
+ *
+ * Agents on 2-tier config (just primary + fallback) keep working — the
+ * secondary slot is optional. 3-tier is what Luna's spec needs: different
+ * auth paths at each tier (OAuth → API key → local) so a single auth
+ * failure doesn't take her whole brain stack offline.
+ *
+ * The router supports these call shapes:
+ *   ask()          — primary backend, with auto-fallback if primary is unhealthy
  *   askWithTools() — same, with tool-execution loop
  *   askLocal()     — always Ollama (privacy / cost / offline use)
- *   askExtended()  — always Claude (when you specifically want its
- *                    capabilities, e.g. multimodal vision)
+ *   askExtended()  — always Claude (when you specifically want its capabilities)
  *   askAny()       — primary first, fallback on error if configured
  *
  * Health:
  *   - Claude failures classified as auth issues trip a watchdog that
  *     probes every 5 min and restores routing automatically when the
- *     CLI is re-authed.
+ *     CLI is re-authed. Codex auth failures follow the same pattern.
  *   - An optional alert callback receives human-readable status text
  *     ("🔴 Claude auth failed…", "🟢 Claude back online") so the agent
  *     can surface this through whatever platform it lives on (Discord,
  *     email, terminal, etc.) without ai.js needing to know.
  *   - An optional hooks emitter receives structured events
- *     ('claude_auth_failed', 'claude_auth_ok') for automation.
+ *     ('claude_auth_failed', 'claude_auth_ok', 'codex_auth_failed',
+ *     'codex_auth_ok') for automation.
  */
 
 import * as ollama from './ollama.js';
 import * as claude from './claude.js';
+import * as codex from './codex.js';
+import * as xai from './xai.js';
+import * as openai from './openai.js';
 import { makeLogger } from './log.js';
 
 const log = makeLogger('ai');
 
 let aiConfig;
 let primaryBackend;
+let secondaryBackend;
 let fallbackBackend;
 let primaryName;
+let secondaryName;
 let fallbackName;
 
-const health = {
-  claude: {
+function freshCliHealth() {
+  return {
     authed: null,
     lastSuccessAt: null,
     lastFailureAt: null,
     lastFailureReason: null,
     consecutiveFailures: 0,
-  },
+  };
+}
+
+const health = {
+  claude: freshCliHealth(),
+  codex: freshCliHealth(),
   ollama: {
     reachable: null,
     lastSuccessAt: null,
@@ -56,8 +78,10 @@ const health = {
 
 let alertCallback = null;
 let hooksEmitter = null;
-let probeTimer = null;
-let alertedOnce = false;
+// Per-CLI-backend probe timers and alert-once flags, keyed by backend name
+// (so claude + codex can independently trip their watchdogs and recover)
+const probeTimers = { claude: null, codex: null };
+const alertedOnce = { claude: false, codex: false };
 
 // ─── Optional integrations ──────────────────────────────────────
 
@@ -97,30 +121,54 @@ function getHealth() {
 }
 
 function markClaudeSuccess() {
-  const wasUnhealthy = health.claude.authed === false;
-  health.claude.authed = true;
-  health.claude.lastSuccessAt = new Date().toISOString();
-  health.claude.consecutiveFailures = 0;
-  if (wasUnhealthy) {
-    alertedOnce = false;
-    if (probeTimer) { clearInterval(probeTimer); probeTimer = null; }
-    alert('🟢 Claude brain is back online. Resuming normal routing.').catch(() => {});
-    emit('claude_auth_ok', { source: 'probe-recovery' });
-  }
+  markCliSuccess('claude');
 }
 
 function markClaudeFailure(reason) {
-  health.claude.lastFailureAt = new Date().toISOString();
-  health.claude.lastFailureReason = reason;
-  health.claude.consecutiveFailures += 1;
+  markCliFailure('claude', reason);
+}
+
+function markCodexSuccess() {
+  markCliSuccess('codex');
+}
+
+function markCodexFailure(reason) {
+  markCliFailure('codex', reason);
+}
+
+function markCliSuccess(name) {
+  const h = health[name];
+  if (!h) return;
+  const wasUnhealthy = h.authed === false;
+  h.authed = true;
+  h.lastSuccessAt = new Date().toISOString();
+  h.consecutiveFailures = 0;
+  if (wasUnhealthy) {
+    alertedOnce[name] = false;
+    if (probeTimers[name]) { clearInterval(probeTimers[name]); probeTimers[name] = null; }
+    const label = name.charAt(0).toUpperCase() + name.slice(1);
+    alert(`🟢 ${label} brain is back online. Resuming normal routing.`).catch(() => {});
+    emit(`${name}_auth_ok`, { source: 'probe-recovery' });
+  }
+}
+
+function markCliFailure(name, reason) {
+  const h = health[name];
+  if (!h) return;
+  h.lastFailureAt = new Date().toISOString();
+  h.lastFailureReason = reason;
+  h.consecutiveFailures += 1;
   if (looksLikeAuthError(reason)) {
-    health.claude.authed = false;
-    if (!alertedOnce) {
-      alertedOnce = true;
-      const fallbackText = fallbackName ? `Falling back to ${fallbackName}.` : '';
-      alert(`🔴 Claude auth failed: "${String(reason).slice(0, 200)}"\n\n${fallbackText} Re-auth the Claude CLI to recover; the watchdog probes every 5 min and will switch back automatically.`).catch(() => {});
-      startProbeLoop();
-      emit('claude_auth_failed', { reason: String(reason).slice(0, 300) });
+    h.authed = false;
+    if (!alertedOnce[name]) {
+      alertedOnce[name] = true;
+      const label = name.charAt(0).toUpperCase() + name.slice(1);
+      const nextTier = [secondaryName, fallbackName].filter(n => n && n !== name)[0];
+      const fallbackText = nextTier ? `Falling back to ${nextTier}.` : '';
+      const reauthHint = name === 'claude' ? 'Re-auth the Claude CLI' : 'Re-auth the Codex CLI (codex login)';
+      alert(`🔴 ${label} auth failed: "${String(reason).slice(0, 200)}"\n\n${fallbackText} ${reauthHint} to recover; the watchdog probes every 5 min and will switch back automatically.`).catch(() => {});
+      startProbeLoop(name);
+      emit(`${name}_auth_failed`, { reason: String(reason).slice(0, 300) });
     }
   }
 }
@@ -144,41 +192,74 @@ function looksLikeAuthError(msg) {
   return patterns.some(p => p.test(msg));
 }
 
-function startProbeLoop() {
-  if (probeTimer) return;
-  log.info('Starting Claude auth-probe loop (every 5 min)');
-  probeTimer = setInterval(async () => {
+function startProbeLoop(name) {
+  if (probeTimers[name]) return;
+  const label = name.charAt(0).toUpperCase() + name.slice(1);
+  log.info(`Starting ${label} auth-probe loop (every 5 min)`);
+  probeTimers[name] = setInterval(async () => {
     try {
-      await claude.ask('Respond with only: ok', { maxTurns: 1 });
-      markClaudeSuccess();
+      if (name === 'claude') {
+        await claude.ask('Respond with only: ok', { maxTurns: 1 });
+        markClaudeSuccess();
+      } else if (name === 'codex') {
+        const r = await codex.probe();
+        if (r.ok) markCodexSuccess();
+        else throw new Error(r.error || 'probe returned not ok');
+      }
     } catch (err) {
-      log.debug(`probe still failing: ${err.message.slice(0, 120)}`);
+      log.debug(`${name} probe still failing: ${err.message.slice(0, 120)}`);
     }
   }, 5 * 60 * 1000);
-  probeTimer.unref?.();
+  probeTimers[name].unref?.();
 }
 
 async function startupAuthCheck() {
-  if (!aiConfig?.primary || aiConfig.primary !== 'claude') {
-    log.debug('Skipping Claude startup auth check (not the primary backend)');
+  const primary = aiConfig?.primary;
+  if (!primary) {
+    log.debug('Skipping startup auth check (no primary configured)');
     return null;
   }
-  log.info('Startup auth check: probing Claude CLI...');
-  try {
-    const r = await claude.ask('Respond with only: ok', { maxTurns: 1 });
-    if (r && r.toLowerCase().includes('ok')) {
+
+  if (primary === 'claude') {
+    log.info('Startup auth check: probing Claude CLI...');
+    try {
+      const r = await claude.ask('Respond with only: ok', { maxTurns: 1 });
+      if (r && r.toLowerCase().includes('ok')) {
+        markClaudeSuccess();
+        log.info('✓ Claude auth OK');
+        return true;
+      }
+      log.warn(`Claude probe returned unexpected response: ${r.slice(0, 100)}`);
       markClaudeSuccess();
-      log.info('✓ Claude auth OK');
       return true;
+    } catch (err) {
+      log.error(`✗ Claude startup auth check failed: ${err.message.slice(0, 200)}`);
+      markClaudeFailure(err.message);
+      return false;
     }
-    log.warn(`Claude probe returned unexpected response: ${r.slice(0, 100)}`);
-    markClaudeSuccess();
-    return true;
-  } catch (err) {
-    log.error(`✗ Claude startup auth check failed: ${err.message.slice(0, 200)}`);
-    markClaudeFailure(err.message);
-    return false;
   }
+
+  if (primary === 'codex') {
+    log.info('Startup auth check: probing Codex CLI...');
+    try {
+      const r = await codex.probe();
+      if (r.ok) {
+        markCodexSuccess();
+        log.info('✓ Codex auth OK');
+        return true;
+      }
+      log.error(`✗ Codex probe returned not ok: ${r.error?.slice(0, 200)}`);
+      markCodexFailure(r.error || 'probe not ok');
+      return false;
+    } catch (err) {
+      log.error(`✗ Codex startup auth check failed: ${err.message.slice(0, 200)}`);
+      markCodexFailure(err.message);
+      return false;
+    }
+  }
+
+  log.debug(`Skipping CLI startup auth check (primary=${primary} is not a CLI backend)`);
+  return null;
 }
 
 // ─── Initialization ─────────────────────────────────────────────
@@ -194,54 +275,84 @@ function init(config, { backends } = {}) {
   aiConfig = config.ai;
 
   // Reset internal state so init() is safe to call repeatedly (tests +
-  // hot reload). Without this, alertedOnce/health/probeTimer leak.
-  if (probeTimer) { clearInterval(probeTimer); probeTimer = null; }
-  alertedOnce = false;
-  health.claude.authed = null;
-  health.claude.lastSuccessAt = null;
-  health.claude.lastFailureAt = null;
-  health.claude.lastFailureReason = null;
-  health.claude.consecutiveFailures = 0;
+  // hot reload). Without this, alertedOnce/health/probeTimers leak.
+  for (const key of Object.keys(probeTimers)) {
+    if (probeTimers[key]) { clearInterval(probeTimers[key]); probeTimers[key] = null; }
+    alertedOnce[key] = false;
+  }
+  Object.assign(health.claude, freshCliHealth());
+  Object.assign(health.codex, freshCliHealth());
   health.ollama.reachable = null;
   health.ollama.lastSuccessAt = null;
   health.ollama.lastFailureAt = null;
   health.startedAt = new Date().toISOString();
 
-  const registry = backends ?? { claude, ollama };
+  const registry = backends ?? { claude, codex, xai, openai, ollama };
   // Init each backend that owns its own config slot
   for (const name of Object.keys(registry)) {
     if (typeof registry[name].init === 'function') registry[name].init(config);
   }
 
   const primary = aiConfig?.primary || 'claude';
+  const secondary = aiConfig?.secondary || null; // optional middle tier
   const fallback = aiConfig?.fallback || 'ollama';
   primaryName = primary;
+  secondaryName = secondary;
   fallbackName = fallback;
 
-  primaryBackend = registry[primary] ?? (primary === 'ollama' ? ollama : claude);
-  fallbackBackend = registry[fallback] ?? (fallback === 'ollama' ? ollama : claude);
+  primaryBackend = registry[primary] ?? claude;
+  secondaryBackend = secondary ? (registry[secondary] ?? null) : null;
+  fallbackBackend = registry[fallback] ?? ollama;
 
-  log.info(`AI routing: primary=${primary}, fallback=${fallback}`);
+  const chain = [primary, secondary, fallback].filter(Boolean).join(' → ');
+  log.info(`AI routing: ${chain}`);
 }
 
+/**
+ * Pick the active backend based on health.
+ * Walks the chain: primary → secondary → fallback, returning the first
+ * healthy tier. If primary is healthy, use it. If primary's auth is
+ * known-failed and secondary exists+healthy, use secondary. Else fallback.
+ */
 function activeBackend() {
-  if (primaryName === 'claude' && health.claude.authed === false) {
-    return { backend: fallbackBackend, name: fallbackName, degraded: true };
+  // Primary: healthy unless known auth-failed
+  const primaryUnhealthy =
+    (primaryName === 'claude' && health.claude.authed === false) ||
+    (primaryName === 'codex' && health.codex.authed === false);
+
+  if (!primaryUnhealthy) {
+    return { backend: primaryBackend, name: primaryName, degraded: false };
   }
-  return { backend: primaryBackend, name: primaryName, degraded: false };
+
+  // Secondary is next if configured and not also known-failed
+  if (secondaryBackend && secondaryName) {
+    const secondaryUnhealthy =
+      (secondaryName === 'claude' && health.claude.authed === false) ||
+      (secondaryName === 'codex' && health.codex.authed === false);
+    if (!secondaryUnhealthy) {
+      return { backend: secondaryBackend, name: secondaryName, degraded: true };
+    }
+  }
+
+  // Fall through to fallback
+  return { backend: fallbackBackend, name: fallbackName, degraded: true };
 }
 
 function stop() {
-  if (probeTimer) { clearInterval(probeTimer); probeTimer = null; }
+  for (const key of Object.keys(probeTimers)) {
+    if (probeTimers[key]) { clearInterval(probeTimers[key]); probeTimers[key] = null; }
+  }
 }
 
 async function trackBackendCall(name, fn) {
   try {
     const result = await fn();
     if (name === 'claude') markClaudeSuccess();
+    else if (name === 'codex') markCodexSuccess();
     return result;
   } catch (err) {
     if (name === 'claude') markClaudeFailure(err.message || String(err));
+    else if (name === 'codex') markCodexFailure(err.message || String(err));
     throw err;
   }
 }
@@ -279,28 +390,40 @@ async function askExtended(prompt, opts = {}) {
 }
 
 /**
- * Try primary first; on error, fall back if config.ai.fallbackOnError.
- * Useful for non-critical calls where any answer beats no answer.
+ * Try primary first; on error, walk through secondary then fallback if
+ * config.ai.fallbackOnError. Useful for non-critical calls where any
+ * answer beats no answer.
  */
 async function askAny(prompt, toolExecutor, opts = {}) {
-  try {
-    if (toolExecutor) return await primaryBackend.askWithTools(prompt, toolExecutor, opts);
-    return await primaryBackend.ask(prompt, opts);
-  } catch (err) {
-    if (aiConfig?.fallbackOnError) {
-      log.warn(`Primary failed, falling back to ${fallbackName}`, err.message);
-      if (toolExecutor) return await fallbackBackend.askWithTools(prompt, toolExecutor, opts);
-      return await fallbackBackend.ask(prompt, opts);
+  const tiers = [
+    { name: primaryName, backend: primaryBackend },
+    secondaryName && secondaryBackend ? { name: secondaryName, backend: secondaryBackend } : null,
+    { name: fallbackName, backend: fallbackBackend },
+  ].filter(Boolean);
+
+  let lastErr;
+  for (let i = 0; i < tiers.length; i++) {
+    const { name, backend } = tiers[i];
+    try {
+      if (toolExecutor) return await backend.askWithTools(prompt, toolExecutor, opts);
+      return await backend.ask(prompt, opts);
+    } catch (err) {
+      lastErr = err;
+      if (!aiConfig?.fallbackOnError || i === tiers.length - 1) throw err;
+      const nextName = tiers[i + 1].name;
+      log.warn(`${name} failed, trying ${nextName}`, err.message);
     }
-    throw err;
   }
+  throw lastErr;
 }
 
 async function status() {
   const ollamaOk = await ollama.ping();
   return {
     primary: aiConfig?.primary || 'claude',
+    secondary: aiConfig?.secondary || null,
     fallback: aiConfig?.fallback || 'ollama',
+    chain: [aiConfig?.primary, aiConfig?.secondary, aiConfig?.fallback].filter(Boolean),
     ollamaReachable: ollamaOk,
     fallbackOnError: aiConfig?.fallbackOnError ?? false,
   };
@@ -310,6 +433,8 @@ export {
   init, stop,
   ask, askWithTools, askLocal, askExtended, askAny,
   status, getHealth,
-  markClaudeSuccess, markClaudeFailure, startupAuthCheck,
+  markClaudeSuccess, markClaudeFailure,
+  markCodexSuccess, markCodexFailure,
+  startupAuthCheck,
   setAlertCallback, setHooksEmitter,
 };
