@@ -28,6 +28,8 @@ function makeFakeClient() {
     updateCard: async (id, patch) => { record('updateCard', { id, patch }); return stubs.updateCard?.(id, patch) ?? { id, patched: Object.keys(patch) }; },
     moveCard: async (id, opts) => { record('moveCard', { id, opts }); return stubs.moveCard?.(id, opts) ?? { id, ...opts }; },
     attachImage: async (id, opts) => { record('attachImage', { id, opts }); return stubs.attachImage?.(id, opts) ?? { id, filename: opts.filename }; },
+    postComment: async (id, opts) => { record('postComment', { id, opts }); return stubs.postComment?.(id, opts) ?? { id, comment: { id: 'c1', author: 'agent', text: opts.text, createdAt: '2026-04-27T00:00:00Z' } }; },
+    listComments: async (id) => { record('listComments', id); return stubs.listComments?.(id) ?? { id, comments: [], count: 0 }; },
   };
 }
 
@@ -107,7 +109,16 @@ test('getTools returns the expected tool names', () => {
   const t = tools(makeFakeClient());
   assert.deepEqual(
     Object.keys(t).sort(),
-    ['board_attach_image', 'board_create', 'board_get', 'board_list', 'board_move', 'board_update'].sort(),
+    [
+      'board_attach_image',
+      'board_comment',
+      'board_comments',
+      'board_create',
+      'board_get',
+      'board_list',
+      'board_move',
+      'board_update',
+    ].sort(),
   );
 });
 
@@ -232,6 +243,40 @@ test('board_attach_image accepts both content_base64 and contentBase64 spellings
   });
   assert.equal(client.calls[0].args.opts.contentBase64, 'aGVsbG8=');
   assert.equal(client.calls[0].args.opts.mimeType, 'image/png');
+});
+
+// ─── board_comment / board_comments ─────────────────────────────
+
+test('board_comment requires id and non-empty text', async () => {
+  const t = tools(makeFakeClient()).board_comment;
+  await assert.rejects(t.handler({}), /id/);
+  await assert.rejects(t.handler({ id: 'x' }), /text/);
+  await assert.rejects(t.handler({ id: 'x', text: '   ' }), /text/);
+});
+
+test('board_comment posts the text without forwarding author (server attributes from token)', async () => {
+  const client = makeFakeClient();
+  await tools(client).board_comment.handler({ id: 'foo', text: 'hello' });
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].method, 'postComment');
+  assert.deepEqual(client.calls[0].args, { id: 'foo', opts: { text: 'hello' } });
+});
+
+test('board_comments requires id', async () => {
+  await assert.rejects(tools(makeFakeClient()).board_comments.handler({}), /id/);
+});
+
+test('board_comments forwards id and JSON-encodes the response', async () => {
+  const client = makeFakeClient();
+  client.stub('listComments', (id) => ({
+    id,
+    comments: [{ id: 'c1', author: 'luna', text: 'hi', createdAt: '2026-04-27T00:00:00Z' }],
+    count: 1,
+  }));
+  const out = await tools(client).board_comments.handler({ id: 'foo' });
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.count, 1);
+  assert.equal(parsed.comments[0].author, 'luna');
 });
 
 // ─── KitsunebiClient base URL handling ─────────────────────────
