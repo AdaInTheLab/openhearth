@@ -28,6 +28,7 @@ import * as mesh from '../src/mesh.js';
 import * as heartbeat from '../src/heartbeat.js';
 import * as hooks from '../src/hooks.js';
 import * as tools from '../src/tools.js';
+import * as kitsunebi from '../src/kitsunebi.js';
 import * as receipts from '../src/receipts.js';
 import * as urgency from '../src/urgency.js';
 import * as sendGate from '../src/send-gate.js';
@@ -73,6 +74,13 @@ async function main() {
 
   // 2. Tools — inject memory so file/search tools work
   tools.init({ memory });
+
+  // 2.5 Kitsunebi tools — board_list / board_get / board_create / board_update
+  //     / board_move / board_attach_image. Token resolves from KITSUNEBI_TOKEN
+  //     env var or {workspace}/.config/kitsunebi/token; calls fail at use
+  //     time if neither is provisioned, so registration is safe even on a
+  //     fresh box.
+  tools.registerMany(kitsunebi.getTools({ workspace: config.workspace }));
 
   // 3. AI router — brings codex/openai/ollama online
   ai.init(config);
