@@ -8,7 +8,7 @@ who did what.
 
 ## What the agent gets
 
-Six tools, registered through the standard openhearth registry:
+Eight tools, registered through the standard openhearth registry:
 
 | Tool                  | Args                                                            | Effect                                                                  |
 | --------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -18,6 +18,8 @@ Six tools, registered through the standard openhearth registry:
 | `board_update`        | `id, title?, owner?, collaborators?, tags?, due?, blocked_by?`  | Patch frontmatter. (Status changes go through `board_move` so the `completed:` field stays consistent.) |
 | `board_move`          | `id, status, order?`                                            | Move to a different column, optionally to an explicit float position.   |
 | `board_attach_image`  | `id, filename, content_base64, mime_type?`                      | Attach an image; appends `![alt](url)` to the card body so it renders on the board. |
+| `board_comment`       | `id, text`                                                      | Post a comment on a card. The server attributes it to the agent name from your bearer token, so no need to pass an author. |
+| `board_comments`      | `id`                                                            | Read the comment thread for a card (oldest first).                      |
 
 ## Wiring it into a runtime
 
