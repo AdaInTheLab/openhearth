@@ -182,6 +182,20 @@ class KitsunebiClient {
       { method: 'DELETE' },
     );
   }
+
+  async listComments(id) {
+    return this._fetch(`/api/cards/${encodeURIComponent(id)}/comments`);
+  }
+
+  async postComment(id, { text, author } = {}) {
+    if (!text) throw new Error('postComment: text required');
+    const body = { text };
+    if (author) body.author = author;
+    return this._fetch(`/api/cards/${encodeURIComponent(id)}/comments`, {
+      method: 'POST',
+      body,
+    });
+  }
 }
 
 /**
@@ -302,6 +316,28 @@ function getTools({ workspace, baseUrl, client } = {}) {
             mimeType: call.mime_type ?? call.mimeType,
           }),
         );
+      },
+    },
+    {
+      name: 'board_comment',
+      args: 'id, text',
+      description:
+        'Post a comment on a card. The comment is appended to the card thread and attributed to your agent name (no need to pass author — the kitsunebi server fills it in from your bearer token).',
+      handler: async (call) => {
+        if (!call.id) throw new Error('board_comment requires id');
+        if (typeof call.text !== 'string' || call.text.trim() === '') {
+          throw new Error('board_comment requires non-empty text');
+        }
+        return JSON.stringify(await c.postComment(call.id, { text: call.text }));
+      },
+    },
+    {
+      name: 'board_comments',
+      args: 'id',
+      description: 'Read the comment thread for a card (oldest first).',
+      handler: async (call) => {
+        if (!call.id) throw new Error('board_comments requires id');
+        return JSON.stringify(await c.listComments(call.id));
       },
     },
   ];
