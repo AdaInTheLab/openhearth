@@ -16,11 +16,14 @@ import * as claude from '../src/claude.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = resolve(__dirname, 'fixtures/fake-claude.mjs');
+// Invoke via `node` explicitly — claude.js spawns with shell:true, and
+// Windows can't exec a .mjs by shebang. Same pattern as codex.test.js.
+const FAKE_CLAUDE_CMD = `node "${FAKE_CLAUDE}"`;
 
 function configFor(overrides = {}) {
   return {
     claude: {
-      command: FAKE_CLAUDE,
+      command: FAKE_CLAUDE_CMD,
       model: 'fake-model',
       enabled: true,
       timeoutMs: 5000,

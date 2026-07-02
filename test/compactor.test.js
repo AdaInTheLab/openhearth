@@ -174,10 +174,13 @@ test('compact in drift mode only touches the oldest month-group', async (t) => {
   const cfg = { ...ws.config.memory.tiers, compaction: ws.config.memory.compaction };
   compactor.init({ memory, aiBackend: makeFakeBackend({ name: 'test:v1' }), cfg });
 
-  // Plant files in two different months, both old enough
-  await memory.write(`memory/${dayOffsetISO(60)}.md`, 'feb entry');
-  await memory.write(`memory/${dayOffsetISO(40)}.md`, 'march entry one');
-  await memory.write(`memory/${dayOffsetISO(41)}.md`, 'march entry two');
+  // Plant files in two different months, both old enough. The offsets
+  // must be >31 days apart so the groups can never collapse into the
+  // same calendar month regardless of today's date (60 vs 40 collided
+  // whenever the run date put both in the same month).
+  await memory.write(`memory/${dayOffsetISO(90)}.md`, 'older month entry');
+  await memory.write(`memory/${dayOffsetISO(45)}.md`, 'newer month entry one');
+  await memory.write(`memory/${dayOffsetISO(46)}.md`, 'newer month entry two');
 
   const result = await compactor.compact({ trigger: { reason: 'test' }, mode: 'drift' });
 
@@ -186,7 +189,7 @@ test('compact in drift mode only touches the oldest month-group', async (t) => {
 
   // The newer month is still in warm
   const warmAfter = await memory.listTier('warm');
-  assert.ok(warmAfter.some(p => p.includes(dayOffsetISO(40)) || p.includes(dayOffsetISO(41))),
+  assert.ok(warmAfter.some(p => p.includes(dayOffsetISO(45)) || p.includes(dayOffsetISO(46))),
     `expected newer month files still in warm, got: ${warmAfter.join(', ')}`);
 });
 
