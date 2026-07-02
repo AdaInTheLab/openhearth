@@ -194,13 +194,15 @@ async function readReceipts({ since, limit = 100, kind } = {}) {
         const kinds = Array.isArray(kind) ? kind : [kind];
         if (!kinds.includes(entry.kind)) continue;
       }
-      results.push(entry);
+      results.push({ entry, seq: results.length });
     }
   }
 
-  // Most recent first, capped
-  results.sort((a, b) => b.at.localeCompare(a.at));
-  return results.slice(0, limit);
+  // Most recent first, capped. `at` only has millisecond resolution, so
+  // entries logged in the same ms tie; ties can only happen within one
+  // day file, where appends are chronological — parse order breaks them.
+  results.sort((a, b) => b.entry.at.localeCompare(a.entry.at) || b.seq - a.seq);
+  return results.slice(0, limit).map(r => r.entry);
 }
 
 export { init, logWake, logAction, readReceipts, formatWakeLine, formatActionLine };
