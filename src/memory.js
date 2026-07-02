@@ -360,7 +360,7 @@ async function promote(path) {
     log.warn(`Cannot promote non-cold file: ${path} (tier=${t})`);
     return false;
   }
-  const target = join(cfg.warm.dir, basename(path));
+  const target = join(cfg.warm.dir, basename(path)).replace(/\\/g, '/');
   await move(path, target);
   return target;
 }
