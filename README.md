@@ -34,7 +34,7 @@ Roadmap:
 - [ ] Extract core modules from reference runtimes
 - [ ] Genericize agent-specific hardcodes (identity, mesh roster, paths)
 - [ ] First-boot setup wizard (`npm run setup`)
-- [ ] Cross-platform control scripts (Windows/macOS/Linux)
+- [x] Cross-platform control scripts (Windows/macOS/Linux)
 - [ ] Template soul files (IDENTITY.md, SOUL.md scaffolding)
 - [ ] Documentation for deployers
 - [ ] Public release

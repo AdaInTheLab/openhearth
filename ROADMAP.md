@@ -35,7 +35,7 @@ Windows/Koda reference) and/or the Mac/Sage reference:
   - `KNOWN_AGENTS` comes from config, not a constant
   - Default Discord presence / ack emoji from config
 - [ ] Memory tiering (hot/warm/cold) per Sage's design notes §3 — a first-class primitive, not an afterthought
-- [ ] Cross-platform control scripts (PowerShell, bash, launchd)
+- [x] Cross-platform control scripts — systemd (`scripts/openhearth.service`), Windows scheduled task (`scripts/openhearth.ps1`), launchd (`scripts/com.openhearth.agent.plist`)
 
 ## Phase 3: Onboarding
 
