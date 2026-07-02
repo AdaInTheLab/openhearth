@@ -1,41 +1,48 @@
 # Roadmap
 
-## Phase 0: Skeleton (current)
+*Checkbox states last reconciled against the code 2026-07-02.*
+
+## Phase 0: Skeleton (done)
 
 - [x] Repository created, README, LICENSE, gitignore
-- [x] Design Notes from Sage (`docs/DESIGN_NOTES.md`)
-- [ ] Pull Sage's OPENFOX.md (the original design notes) into `docs/DESIGN_NOTES.md` once Ada decides it's ready to publish. Note: the document was written when the project was still called OpenFox; the name changed to openhearth after we discovered OpenFox was already an established law-enforcement software trademark.
+- [ ] Pull Sage's OPENFOX.md (the original design notes) into `docs/DESIGN_NOTES.md` once Ada decides it's ready to publish. Note: the document was written when the project was still called OpenFox; the name changed to openhearth after we discovered OpenFox was already an established law-enforcement software trademark. (Until then, README references to `docs/DESIGN_NOTES.md` point at a file that doesn't exist yet.)
 
-## Phase 1: Extraction
+## Phase 1: Extraction (done)
 
-Pull the clean, portable modules out of `AdaInTheLab/koda-runtime` (the
+Pulled the clean, portable modules out of `AdaInTheLab/koda-runtime` (the
 Windows/Koda reference) and/or the Mac/Sage reference:
 
-- [ ] `src/ai.js` — model routing, health tracking, auth watchdog
-- [ ] `src/claude.js` — Claude CLI wrapper with session continuity
-- [ ] `src/ollama.js` — Ollama wrapper with serial queue
-- [ ] `src/parse-tools.js` — tool call parser
-- [ ] `src/heartbeat.js` — heartbeat scheduler
-- [ ] `src/memory.js` — workspace file primitives
-- [ ] `src/sessions.js` — session continuity with pruning
-- [ ] `src/scheduler.js` — self-scheduled cron tasks
-- [ ] `src/hooks.js` — event-driven rules
-- [ ] `src/dreams.js` — idle-time passion cycles
-- [ ] `src/learnings.js` — self-improvement ledger
-- [ ] `src/delegations.js` — sub-agent dispatch
-- [ ] `src/mesh.js` + `src/mesh-server.js` — inter-agent messaging
-- [ ] `src/skills.js` — skill registry
-- [ ] `src/log.js` — rotating logger
-- [ ] `src/tools.js` — tool executor
-- [ ] Platform adapters: Discord (opt-in), email (opt-in), etc.
+- [x] `src/ai.js` — model routing, health tracking, auth watchdog
+- [x] `src/claude.js` — Claude CLI wrapper with session continuity
+- [x] `src/ollama.js` — Ollama wrapper with serial queue
+- [x] `src/parse-tools.js` — tool call parser
+- [x] `src/heartbeat.js` — heartbeat scheduler
+- [x] `src/memory.js` — workspace file primitives (grew into the tiered memory system, see Phase 2)
+- [x] `src/sessions.js` — session continuity with pruning
+- [x] `src/scheduler.js` — self-scheduled cron tasks
+- [x] `src/hooks.js` — event-driven rules
+- [x] `src/dreams.js` — idle-time passion cycles
+- [x] `src/learnings.js` — self-improvement ledger
+- [x] `src/delegations.js` — sub-agent dispatch
+- [x] `src/mesh.js` + `src/mesh-server.js` — inter-agent messaging
+- [x] `src/skills.js` — skill registry
+- [x] `src/log.js` — rotating logger
+- [x] `src/tools.js` — tool executor
+- [x] Platform adapters: Discord (`src/discord.js`, opt-in). Email etc. remain demand-driven.
 
-## Phase 2: Genericize
+Beyond the original list, extraction also produced: `src/compactor.js`
+(warm→cold summarization), `src/urgency.js` (quiet-hours filter),
+`src/send-gate.js` (external-send gate), `src/receipts.js` (wake/action
+audit trail), `src/kitsunebi.js` (board tools). Everything under `src/`
+has a matching suite in `test/` (497 tests as of 2026-07-02).
 
-- [ ] Remove Skulk-specific hardcodes
-  - `KNOWN_AGENTS` comes from config, not a constant
-  - Default Discord presence / ack emoji from config
-- [ ] Memory tiering (hot/warm/cold) per Sage's design notes §3 — a first-class primitive, not an afterthought
-- [ ] Cross-platform control scripts (PowerShell, bash, launchd)
+## Phase 2: Genericize (mostly done)
+
+- [x] Remove Skulk-specific hardcodes
+  - [x] Known agents roster comes from config (`mesh-server.start({ knownAgents })`), not a constant
+  - [x] Discord presence / ack emoji come from per-account config
+- [x] Memory tiering (hot/warm/cold) per Sage's design notes §3 — `src/memory.js` + `src/compactor.js`, spec in `docs/MEMORY_DESIGN.md`
+- [ ] Cross-platform control scripts — systemd covered (`scripts/openhearth.service`, VPS + WSL deploy docs); PowerShell (native Windows) and launchd (macOS) still missing
 
 ## Phase 3: Onboarding
 
@@ -45,26 +52,27 @@ Windows/Koda reference) and/or the Mac/Sage reference:
   - Which integrations to enable
   - Credential locations
   - Primary / fallback brain configuration
-- [ ] Template soul files (`IDENTITY.md`, `SOUL.md` scaffolding)
+- [ ] Template soul files (`IDENTITY.md`, `SOUL.md` scaffolding) — only `docs/agent-specs/LUNA-config.example.json` exists today
 - [ ] Example workspace tree
 
 ## Phase 4: Ship
 
-- [ ] README with clear "why this exists"
-- [ ] Deployer documentation
+- [ ] README with clear "why this exists" (current README still calls the repo a skeleton — stale)
+- [ ] Deployer documentation — `docs/VPS_DEPLOY.md` and `docs/WSL_DEPLOY.md` exist; needs a generic quickstart that isn't agent-specific
+- [x] Marketing/home site scaffolding (`site/`, Astro; deploy pending)
 - [ ] Flip visibility: private → public
 - [ ] Announce (maybe Moltbook first, then wider)
 
 ## Brain backends (ongoing, demand-driven)
 
-openhearth currently supports Claude (via `claude` CLI) and Ollama
-(local, REST). Other backends are a non-blocking track, built only
-when an actual agent needs one:
+Built so far — each implements `ask(prompt, opts) → string` and
+`askWithTools(prompt, toolExecutor, opts)`:
 
-- [ ] xAI / Grok API — needed if any Skulk agent currently on xAI
-      (e.g. Vesper) chooses openhearth. Separate adapter with the
-      same shape as `src/claude.js`. Not built speculatively.
-- [ ] OpenAI API — if someone wants it.
+- [x] Claude CLI (`src/claude.js`)
+- [x] Ollama (`src/ollama.js`)
+- [x] Codex CLI (`src/codex.js`) — built for Luna's migration
+- [x] xAI / Grok API (`src/xai.js`) — built for Vesper's spec
+- [x] OpenAI API (`src/openai.js`) — used by the urgency classifier
 - [ ] Anthropic API direct (not via CLI) — for deployers without
       a Claude Code subscription.
 

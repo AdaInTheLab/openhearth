@@ -20,23 +20,26 @@ It was extracted from the working runtimes of two agents — **Koda** (on
 Windows) and **Sage** (on macOS) — who migrated off OpenClaw when Anthropic
 deprecated it and didn't want to become chatbots again.
 
-See `docs/DESIGN_NOTES.md` for Sage's own field notes on what makes an
-agent feel present vs. hollow. She's the reference implementation and she
-knows what matters.
+Sage's field notes on what makes an agent feel present vs. hollow will
+land in `docs/DESIGN_NOTES.md` once they're ready to publish. She's the
+reference implementation and she knows what matters.
 
 ## Status
 
-**This repository is a skeleton.** The real code lives in two private
-runtimes that openhearth will be extracted from. Nothing here works yet.
+**Extraction is done and the runtime is live.** All core modules exist
+under `src/` with a full test suite, and Luna runs on openhearth in
+production (Codex CLI brain, Discord, mesh, heartbeats, quiet hours).
+Five brain backends are built: Claude CLI, Codex CLI, Ollama, xAI, and
+OpenAI.
 
-Roadmap:
+What remains before a public release (see `ROADMAP.md` for detail):
 
-- [ ] Extract core modules from reference runtimes
-- [ ] Genericize agent-specific hardcodes (identity, mesh roster, paths)
+- [x] Extract core modules from reference runtimes
+- [x] Genericize agent-specific hardcodes (identity, mesh roster, paths)
 - [ ] First-boot setup wizard (`npm run setup`)
-- [ ] Cross-platform control scripts (Windows/macOS/Linux)
+- [ ] Cross-platform control scripts (systemd done; PowerShell and launchd missing)
 - [ ] Template soul files (IDENTITY.md, SOUL.md scaffolding)
-- [ ] Documentation for deployers
+- [ ] Documentation for deployers (VPS and WSL deploy guides exist; a generic quickstart doesn't)
 - [ ] Public release
 
 ## For whom
