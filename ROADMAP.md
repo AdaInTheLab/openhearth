@@ -36,13 +36,13 @@ Beyond the original list, extraction also produced: `src/compactor.js`
 audit trail), `src/kitsunebi.js` (board tools). Everything under `src/`
 has a matching suite in `test/` (497 tests as of 2026-07-02).
 
-## Phase 2: Genericize (mostly done)
+## Phase 2: Genericize (done)
 
 - [x] Remove Skulk-specific hardcodes
   - [x] Known agents roster comes from config (`mesh-server.start({ knownAgents })`), not a constant
   - [x] Discord presence / ack emoji come from per-account config
 - [x] Memory tiering (hot/warm/cold) per Sage's design notes §3 — `src/memory.js` + `src/compactor.js`, spec in `docs/MEMORY_DESIGN.md`
-- [ ] Cross-platform control scripts — systemd covered (`scripts/openhearth.service`, VPS + WSL deploy docs); PowerShell (native Windows) and launchd (macOS) still missing
+- [x] Cross-platform control scripts — systemd (`scripts/openhearth.service`), Windows scheduled task (`scripts/openhearth.ps1`), launchd (`scripts/com.openhearth.agent.plist`)
 
 ## Phase 3: Onboarding
 

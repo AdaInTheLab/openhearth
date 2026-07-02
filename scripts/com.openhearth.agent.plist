@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ─────────────────────────────────────────────────────────────
+  com.openhearth.agent.plist — launchd agent for running an
+  openhearth agent persistently on macOS (Sage's platform).
+
+  This is the macOS sibling of scripts/openhearth.service. It is
+  a *LaunchAgent* (per-user, runs at login), not a LaunchDaemon —
+  deliberate: the runtime shells out to CLIs (claude, codex)
+  whose auth lives in the user's home directory.
+
+  Install:
+    1. Edit the placeholders below: every YOUR_USER path, and the
+       node path if yours differs (`which node` — Homebrew is
+       /opt/homebrew/bin/node on Apple Silicon, /usr/local/bin/node
+       on Intel).
+    2. cp scripts/com.openhearth.agent.plist ~/Library/LaunchAgents/
+    3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.openhearth.agent.plist
+
+  Control:
+    launchctl kickstart -k gui/$(id -u)/com.openhearth.agent   # (re)start
+    launchctl print gui/$(id -u)/com.openhearth.agent          # status
+    launchctl bootout gui/$(id -u)/com.openhearth.agent        # stop + unload
+    tail -f ~/openhearth-workspace/.openhearth/runtime.log     # live logs
+
+  Assumes the same layout as the systemd unit: repo cloned with
+  the entry point at index.js in the repo root (adjust the second
+  ProgramArguments entry to e.g. scripts/luna.js otherwise), and
+  LOG_FILE pointed into the agent's workspace so logs live with
+  the soul files. openhearth's own logger rotates LOG_FILE
+  in-process (10 MB threshold, keeps last 5).
+───────────────────────────────────────────────────────────── -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openhearth.agent</string>
+
+  <!-- launchd does not expand ~ or $HOME in paths — everything
+       here must be absolute. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>index.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOUR_USER/openhearth</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd gives agents a minimal PATH. The runtime spawns
+         claude / codex / ollama from PATH, so this line is
+         load-bearing — include wherever those CLIs live. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>LOG_FILE</key>
+    <string>/Users/YOUR_USER/openhearth-workspace/.openhearth/runtime.log</string>
+    <key>NODE_ENV</key>
+    <string>production</string>
+  </dict>
+
+  <!-- Restart on crash but not on clean exit or manual bootout —
+       the launchd equivalent of Restart=on-failure. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Whatever escapes the in-process logger (early-startup
+       errors, node crash traces) lands here. -->
+  <key>StandardOutPath</key>
+  <string>/Users/YOUR_USER/Library/Logs/openhearth.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOUR_USER/Library/Logs/openhearth.log</string>
+
+  <!-- Exempt the agent from App Nap / background throttling —
+       heartbeats should fire on time even when nothing is
+       watching. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>
