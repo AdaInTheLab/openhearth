@@ -250,7 +250,7 @@ function startReceiver({ port, bind }) {
 async function start() {
   if (!cfg?.enabled) { log.info('mesh disabled in config'); return; }
 
-  const webhookPort = cfg.webhookPort || 3338;
+  const webhookPort = cfg.webhookPort ?? 3338;
   // Bind defaults to loopback. Agents talking to a remote bus must
   // bind to their externally-reachable interface (e.g. Tailscale IP)
   // so the bus can push to them — set mesh.webhookBind to "0.0.0.0"
