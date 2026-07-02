@@ -37,7 +37,7 @@ What remains before a public release (see `ROADMAP.md` for detail):
 - [x] Extract core modules from reference runtimes
 - [x] Genericize agent-specific hardcodes (identity, mesh roster, paths)
 - [ ] First-boot setup wizard (`npm run setup`)
-- [ ] Cross-platform control scripts (systemd done; PowerShell and launchd missing)
+- [x] Cross-platform control scripts (systemd, Windows scheduled task, launchd)
 - [ ] Template soul files (IDENTITY.md, SOUL.md scaffolding)
 - [ ] Documentation for deployers (VPS and WSL deploy guides exist; a generic quickstart doesn't)
 - [ ] Public release
