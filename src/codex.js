@@ -32,6 +32,9 @@
  */
 
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { makeLogger } from './log.js';
 import { parseToolCalls } from './parse-tools.js';
 
@@ -146,6 +149,13 @@ async function ask(prompt, { systemContext, model, session, images } = {}) {
         if (err.status === 401 || err.status === 403) throw err;
         if (/not authenticated|login required|oauth/i.test(err.message)) throw err;
         if (/not found|permission denied/i.test(err.message)) throw err;
+        // Backend rejected the configured model (e.g. "The 'x' model is
+        // not supported when using Codex with a ChatGPT account"). A
+        // config error — every retry burns the full call for nothing, so
+        // fail fast and say which models the account actually has.
+        if (/model.{0,80}not supported/i.test(err.message)) {
+          throw await withModelHint(err, model || codexConfig.model);
+        }
       }
     }
 
@@ -396,6 +406,39 @@ async function askWithTools(prompt, toolExecutor, { systemContext, model, sessio
   }
 
   return { response: finalResponse, toolResults: allToolResults };
+}
+
+/**
+ * List the model slugs this Codex account can actually use. The CLI
+ * caches the backend's advertised model list in
+ * $CODEX_HOME/models_cache.json (default ~/.codex); hidden entries are
+ * internal (e.g. codex-auto-review). Best-effort: returns [] if the
+ * cache is missing or unreadable.
+ */
+async function supportedModels() {
+  try {
+    const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex');
+    const cache = JSON.parse(await readFile(join(codexHome, 'models_cache.json'), 'utf-8'));
+    return (cache.models || [])
+      .filter(m => m.slug && m.visibility !== 'hide')
+      .map(m => m.slug);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Wrap a model-rejection error with the list of models the account
+ * supports, so the operator can fix config.codex.model without hunting.
+ */
+async function withModelHint(err, attemptedModel) {
+  const valid = await supportedModels();
+  const hint = valid.length > 0
+    ? `This account supports: ${valid.join(', ')}. Update config.codex.model.`
+    : `Could not read the supported-model list from models_cache.json — run the codex CLI once (or check \`codex login status\`) to refresh it.`;
+  const wrapped = new Error(`Codex rejected model '${attemptedModel}'. ${hint} Original error: ${err.message}`);
+  wrapped.status = err.status;
+  return wrapped;
 }
 
 /**
