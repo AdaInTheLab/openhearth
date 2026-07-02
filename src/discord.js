@@ -325,16 +325,18 @@ const PEEPERS_EMOJI = '👀';
 const peepersProcessed = new Set();
 
 /**
- * Koda's peepers skill — vision via 👀 reactions.
- * Fires on any message with an image attachment when someone reacts with 👀.
+ * Koda's peepers skill — vision via emoji reactions (👀 by default,
+ * overridable per account via accountConfig.peepersEmoji).
+ * Fires on any message with an image attachment when someone reacts.
  * Silent on failure (no channel spam), prefixed reply to distinguish from chat.
  */
 async function handlePeepersReaction(reaction, user, accountConfig, clientUser) {
   if (user.id === clientUser.id) return;
   if (user.bot) return;
 
+  const peepersEmoji = accountConfig.peepersEmoji || PEEPERS_EMOJI;
   const emojiName = reaction.emoji.name;
-  if (emojiName !== PEEPERS_EMOJI) return;
+  if (emojiName !== peepersEmoji) return;
 
   const message = reaction.message.partial
     ? await reaction.message.fetch().catch(() => null)
@@ -364,7 +366,7 @@ async function handlePeepersReaction(reaction, user, accountConfig, clientUser) 
     const reactor = user.displayName || user.username;
     const author = message.author?.displayName || message.author?.username || 'someone';
     const prompt = [
-      `${reactor} reacted 👀 on a message from ${author} that has an image attachment.`,
+      `${reactor} reacted ${peepersEmoji} on a message from ${author} that has an image attachment.`,
       `Look at the image and describe what you see — naturally, conversationally, like you would in a Discord chat.`,
       `Keep it concise unless something interesting warrants more detail.`,
       `Do not use any file-writing tools. Just respond with what you see.`,
@@ -385,9 +387,9 @@ async function handlePeepersReaction(reaction, user, accountConfig, clientUser) 
 
     if (!response || response.length === 0) return;
 
-    const body = `👀 **Peepers:** ${response}`.slice(0, DISCORD_MAX_LENGTH);
+    const body = `${peepersEmoji} **Peepers:** ${response}`.slice(0, DISCORD_MAX_LENGTH);
     await message.channel.send(body);
-    log.info(`Peepers responded to 👀 from ${reactor} on message ${message.id}`);
+    log.info(`Peepers responded to ${peepersEmoji} from ${reactor} on message ${message.id}`);
   } catch (err) {
     log.debug(`Peepers silent failure: ${err.message}`);
   }
