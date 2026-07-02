@@ -10,7 +10,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 import * as codex from '../src/codex.js';
 
@@ -173,6 +175,76 @@ test('ask throws on error event in JSON stream', async (t) => {
   process.env.FAKE_CODEX_SHAPE = 'error';
   process.env.FAKE_CODEX_RESPONSE = 'something went wrong inside';
   await assert.rejects(codex.ask('hi'), /something went wrong inside/);
+});
+
+// ─── model guard ────────────────────────────────────────────────
+// The real CLI surfaces an unsupported model as an error event + exit 1
+// (seen live on Luna's runtime, 2026-07-02: gpt-5.3-codex on a ChatGPT
+// account burned 3 retries × ~25s on every startup probe). It's a config
+// error — fail fast and tell the operator which models the account has.
+
+const MODEL_REJECTION =
+  "The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.";
+
+function setModelRejectionEnv() {
+  process.env.FAKE_CODEX_SHAPE = 'error';
+  process.env.FAKE_CODEX_RESPONSE = MODEL_REJECTION;
+  process.env.FAKE_CODEX_EXIT_CODE = '1';
+}
+
+async function withCodexHome(t, setup) {
+  const dir = await mkdtemp(join(tmpdir(), 'codex-home-'));
+  const prevHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = dir;
+  t.after(async () => {
+    clearFakeEnv();
+    if (prevHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevHome;
+    await rm(dir, { recursive: true, force: true });
+  });
+  if (setup) await setup(dir);
+  return dir;
+}
+
+test('model rejection fails fast without retries', async (t) => {
+  await withCodexHome(t); // empty CODEX_HOME so the real cache doesn't leak in
+  // With maxRetries 2, retried failures wait ≥2s+4s in backoff. The
+  // guard must reject before the first backoff even starts.
+  codex.init(configFor({ maxRetries: 2 }));
+  setModelRejectionEnv();
+  const start = Date.now();
+  await assert.rejects(codex.ask('hi'), /rejected model 'fake-model'/);
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 1500, `expected fail-fast (<1500ms), got ${elapsed}ms`);
+});
+
+test('model rejection error lists supported models from models_cache.json', async (t) => {
+  await withCodexHome(t, (dir) =>
+    writeFile(join(dir, 'models_cache.json'), JSON.stringify({
+      models: [
+        { slug: 'gpt-5.5', visibility: 'list' },
+        { slug: 'gpt-5.4', visibility: 'list' },
+        { slug: 'codex-auto-review', visibility: 'hide' },
+      ],
+    })));
+  codex.init(configFor());
+  setModelRejectionEnv();
+  try {
+    await codex.ask('hi');
+    assert.fail('expected rejection');
+  } catch (err) {
+    assert.match(err.message, /gpt-5\.5, gpt-5\.4/);
+    assert.match(err.message, /config\.codex\.model/);
+    // Hidden internal models are not suggestions
+    assert.doesNotMatch(err.message, /codex-auto-review/);
+  }
+});
+
+test('model rejection still fails cleanly when models cache is missing', async (t) => {
+  await withCodexHome(t); // no models_cache.json inside
+  codex.init(configFor());
+  setModelRejectionEnv();
+  await assert.rejects(codex.ask('hi'), /Could not read the supported-model list/);
 });
 
 test('retry happens on transient failure when maxRetries > 0', async (t) => {
