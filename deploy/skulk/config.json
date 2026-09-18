@@ -1,0 +1,155 @@
+{
+  "_comment": "Template config for Luna's openhearth runtime. See docs/agent-specs/LUNA.md for the full spec. Copy to config.json in your checkout, fill in the paths, and you're most of the way there.",
+  "workspace": "/workspace",
+  "ai": {
+    "primary": "codex",
+    "secondary": "claude",
+    "fallback": "ollama",
+    "fallbackOnError": true
+  },
+  "codex": {
+    "command": "codex",
+    "model": "gpt-5.5",
+    "enabled": true,
+    "timeoutMs": 180000,
+    "maxRetries": 2,
+    "sandbox": "workspace-write",
+    "workingDir": "/workspace",
+    "_auth_note": "ChatGPT OAuth — run `codex login` once before first boot"
+  },
+  "claude": {
+    "command": "claude",
+    "model": "claude-sonnet-4-6",
+    "maxTokens": 8192,
+    "timeoutMs": 120000,
+    "maxRetries": 2,
+    "enabled": true,
+    "workingDir": "/workspace",
+    "_auth_note": "OAuth via `claude` then `/login`. Same model family Koda uses."
+  },
+  "openai": {
+    "enabled": true,
+    "model": "gpt-5.4-mini",
+    "timeoutMs": 60000,
+    "maxRetries": 2,
+    "_creds_note": "OPENAI_API_KEY env var OR {workspace}/.config/openai/credentials.json. Stays enabled for the urgency classifier (gpt-5.4-mini) even though it's no longer in the conversational chain."
+  },
+  "ollama": {
+    "baseUrl": "http://100.110.212.12:11434",
+    "model": "qwen3.5:9b",
+    "maxTokens": 4096,
+    "timeoutMs": 180000,
+    "maxRetries": 1
+  },
+  "urgency": {
+    "enabled": true,
+    "threshold": 0.7,
+    "classifierModel": "gpt-5.4-mini",
+    "_comment": "Classifier uses the openai backend at gpt-5.4-mini. Raise threshold for fewer wakes, lower for more sensitive. 0.70 is a conservative default."
+  },
+  "sendGate": {
+    "defaultPolicy": "ask",
+    "channels": {
+      "mesh": {
+        "policy": "allow",
+        "_comment": "Skulk-internal — pre-approved. Reviewers want mesh chatter un-gated."
+      },
+      "discord": {
+        "policy": "ask",
+        "_comment": "External/public — gate every send. Populate allow: [channelIds] for channels Luna has preapproved posting to."
+      },
+      "email": {
+        "policy": "ask"
+      },
+      "webhook": {
+        "policy": "ask"
+      }
+    }
+  },
+  "heartbeat": {
+    "socialIntervalMinutes": 120,
+    "taskIntervalMinutes": 120,
+    "heartbeatFile": "HEARTBEAT.md",
+    "session": "main",
+    "quietHours": {
+      "start": 23,
+      "end": 8,
+      "_comment": "Luna's spec: 23:00-08:00 local time. Hybrid urgency filter decides what breaks through — see src/urgency.js."
+    }
+  },
+  "memory": {
+    "tiers": {
+      "hot": {
+        "rollingDailyFile": "memory/{YYYY-MM-DD}.md"
+      }
+    },
+    "bootstrapFiles": [
+      "SOUL.md",
+      "USER.md",
+      "MEMORY.md"
+    ],
+    "standingOrdersFile": "STANDING_ORDERS.md",
+    "maxStandingOrdersChars": 5000,
+    "dailyMemoryDir": "memory",
+    "maxBootstrapChars": 28000,
+    "_comment": "Luna's lean 3-file bootstrap (vs. Koda's 7). SOUL.md for identity, USER.md for relationship with Ada, MEMORY.md for curated long-term. memory/YYYY-MM-DD.md for daily raw log; warm/cold tiers + weekly distill handled by Sage's compactor system."
+  },
+  "mesh": {
+    "enabled": true,
+    "agent": "luna",
+    "embedded": false,
+    "baseUrl": "http://100.119.87.34:3337",
+    "webhookPort": 3343,
+    "webhookUrl": "http://100.119.87.34:3343/incoming",
+    "webhookBind": "0.0.0.0",
+    "_comment": "Luna is a mesh client pointing at Koda's bus. Bus + Luna share this physical PC and WSL is mirrored-networking, so localhost works both directions; the Tailscale IPs (bus 100.110.212.12, luna-eclipse 100.122.19.35) do NOT hairpin between Windows and WSL on the same box. Webhook port 3341 (Koda=3338, Sage=3338, Vesper=3338, Marlow=8765; pick one that doesn't collide).",
+    "_movenote": "2026-09-18: Luna runs in Docker on skulk; her receiver is published on 3343 directly, the kodas-hearth :3344 forwarder hop is no longer needed."
+  },
+  "discord": {
+    "accounts": [
+      {
+        "id": "luna",
+        "mentionPatterns": [
+          "@Luna",
+          "Luna",
+          "luna"
+        ],
+        "ackReaction": "🌙",
+        "presence": {
+          "status": "online",
+          "activity": "noticing things",
+          "type": "custom"
+        },
+        "guilds": {
+          "1014724010413666334": {
+            "channels": [
+              "1517507306940534996",
+              "1517499447792242818"
+            ],
+            "requireMention": false
+          },
+          "1489330020789915859": {
+            "channels": [
+              "1493967875562803320",
+              "1492552121269092443",
+              "1494060969729462292"
+            ],
+            "requireMention": false
+          }
+        }
+      }
+    ]
+  },
+  "dreams": {
+    "enabled": false,
+    "_comment": "Luna's spec: disabled by default. She can opt in later if dreaming fits her shape."
+  },
+  "delegations": {
+    "enabled": false,
+    "_comment": "Luna's spec: disabled by default. Re-enable with a small Ollama model if she wants sub-agent workers."
+  },
+  "logging": {
+    "level": "info"
+  },
+  "_skulk_note": "Linux config for the Docker deployment on skulk, generated 2026-09-18 from the WSL config.json (workspace + workingDirs, ollama.baseUrl, mesh.webhookUrl). Codex + Claude logins live in the home volume (Ada: docker compose run --rm -it --no-deps luna codex login / claude auth login). Mounted read-only at /app/config.json."
+}

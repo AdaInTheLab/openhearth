@@ -1,0 +1,8 @@
+node_modules
+logs
+*.pid
+config.json
+config.json.bak*
+*.bak.*
+*.bak-*
+.git

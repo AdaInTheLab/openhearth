@@ -1,0 +1,23 @@
+# /opt/luna/compose.yml on skulk. Layout: runtime/ (openhearth checkout, Dockerfile at deploy/skulk/),
+# workspace/ (luna-hearth), home/ (~/.codex + ~/.claude logins, sessions), logs/, config.json (ro).
+services:
+  luna:
+    build:
+      context: ./runtime
+      dockerfile: deploy/skulk/Dockerfile
+    image: luna-runtime:local
+    container_name: luna
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: America/Chicago
+      HOME: /home/luna
+      LOG_FILE: /app/logs/luna-runtime.log
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./workspace:/workspace
+      - ./home:/home/luna
+      - ./logs:/app/logs
+    ports:
+      - "3343:3343"   # mesh webhook receiver (no more WSL forwarder hop)
+    init: true
