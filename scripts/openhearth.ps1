@@ -49,8 +49,9 @@ param(
   # agent on the same box (e.g. -TaskName openhearth-luna).
   [string]$TaskName = 'openhearth',
 
-  # Repo root. Defaults to the parent of this script's directory.
-  [string]$RepoDir = (Split-Path -Parent $PSScriptRoot),
+  # Repo root. Defaults to the parent of this script's directory
+  # (resolved below - $PSScriptRoot is empty inside param() on PS 5.1).
+  [string]$RepoDir = '',
 
   # Entry point, relative to -RepoDir (or absolute).
   [string]$EntryScript = 'index.js',
@@ -64,6 +65,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $RepoDir) { $RepoDir = Split-Path -Parent $PSScriptRoot }
 if (-not $LogFile) { $LogFile = Join-Path $RepoDir '.openhearth\runtime.log' }
 
 function Resolve-Node {
@@ -79,6 +81,24 @@ function Get-Task {
   Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 
+# Stop-ScheduledTask only kills the task's own process (this script);
+# node is a child and survives as an orphan, holding the mesh webhook
+# port and the log file, which wedges the next start. 'run' records
+# node's PID here so stop/restart can take it down too.
+$PidFile = Join-Path (Split-Path -Parent $LogFile) 'runtime.pid'
+
+function Stop-Agent {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (Test-Path $PidFile) {
+    $agentPid = (Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($agentPid) {
+      $proc = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+      if ($proc -and $proc.ProcessName -eq 'node') { Stop-Process -Id $agentPid -Force }
+    }
+    Remove-Item $PidFile -ErrorAction SilentlyContinue
+  }
+}
+
 switch ($Action) {
 
   # --- run: what the scheduled task actually executes ----------
@@ -89,8 +109,13 @@ switch ($Action) {
     $env:NODE_ENV = 'production'
     New-Item -ItemType Directory -Force (Split-Path -Parent $LogFile) | Out-Null
     Set-Location $RepoDir
-    & (Resolve-Node) $EntryScript
-    exit $LASTEXITCODE
+    $proc = Start-Process -FilePath (Resolve-Node) -ArgumentList "`"$EntryScript`"" `
+      -WorkingDirectory $RepoDir -NoNewWindow -PassThru
+    $null = $proc.Handle  # keeps ExitCode readable after exit (PS 5.1 quirk)
+    Set-Content -Path $PidFile -Value $proc.Id -Encoding ascii
+    $proc.WaitForExit()
+    Remove-Item $PidFile -ErrorAction SilentlyContinue
+    exit $proc.ExitCode
   }
 
   'install' {
@@ -140,7 +165,7 @@ switch ($Action) {
 
   'uninstall' {
     if (-not (Get-Task)) { Write-Host "Task '$TaskName' is not installed."; break }
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Stop-Agent
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Write-Host "Uninstalled scheduled task '$TaskName'."
   }
@@ -153,13 +178,13 @@ switch ($Action) {
 
   'stop' {
     if (-not (Get-Task)) { throw "Task '$TaskName' is not installed." }
-    Stop-ScheduledTask -TaskName $TaskName
+    Stop-Agent
     Write-Host "Stopped '$TaskName'."
   }
 
   'restart' {
     if (-not (Get-Task)) { throw "Task '$TaskName' is not installed." }
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Stop-Agent
     Start-ScheduledTask -TaskName $TaskName
     Write-Host "Restarted '$TaskName'."
   }
