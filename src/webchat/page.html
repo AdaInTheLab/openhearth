@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearth chat</title>
+<style>
+  :root {
+    --bg: #faf7f2; --panel: #ffffff; --ink: #2a2522; --muted: #7a6f66; --line: #e7dfd5;
+    --accent: #c4561d; --accent-ink: #ffffff; --me: #fbe9dc; --them: #ffffff; --err: #b3261e;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1714; --panel: #23201c; --ink: #efe8e0; --muted: #a39789; --line: #3a342e;
+      --accent: #e8743b; --accent-ink: #1a1714; --me: #3a2a1f; --them: #23201c; --err: #ff8a80;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1714; --panel: #23201c; --ink: #efe8e0; --muted: #a39789; --line: #3a342e;
+    --accent: #e8743b; --accent-ink: #1a1714; --me: #3a2a1f; --them: #23201c; --err: #ff8a80;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+           background: var(--panel); }
+  .flame { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 18px;
+           background: var(--me); flex: none; }
+  .who { flex: 1; min-width: 0; }
+  .who h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  .who .sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+          padding: 6px 8px; border-radius: 8px; }
+  .link:hover { color: var(--ink); background: var(--bg); }
+  main { flex: 1; overflow-y: auto; padding: 20px 16px 8px; }
+  .log { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .empty { color: var(--muted); text-align: center; margin-top: 12vh; }
+  .empty p { margin: 6px 0; }
+  .msg { display: flex; flex-direction: column; max-width: 85%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.agent { align-self: flex-start; }
+  .bubble { padding: 10px 14px; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line);
+            overflow-wrap: anywhere; }
+  .user .bubble { background: var(--me); border-bottom-right-radius: 4px; }
+  .agent .bubble { background: var(--them); border-bottom-left-radius: 4px; }
+  .bubble p, .bubble ul, .bubble ol { margin: 0 0 8px; } .bubble > :last-child { margin-bottom: 0; }
+  .bubble ul, .bubble ol { padding-left: 22px; } .bubble li { margin: 2px 0; }
+  .bubble code { font: 13px ui-monospace, Consolas, monospace; background: var(--bg); padding: 1px 5px; border-radius: 5px; }
+  .bubble pre { background: var(--bg); padding: 10px; border-radius: 8px; overflow-x: auto; margin: 6px 0; }
+  .bubble pre code { background: none; padding: 0; }
+  .bubble a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 12px; margin: 4px 6px 0; }
+  .tools { color: var(--muted); font-size: 12px; margin: 6px 2px 0; }
+  .imgs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .imgs img { max-width: min(360px, 100%); border-radius: 12px; border: 1px solid var(--line); cursor: zoom-in; display: block; }
+  .thinking .bubble { color: var(--muted); font-style: italic; }
+  .dots::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  .error .bubble { color: var(--err); }
+  footer { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px 14px; }
+  .composer { max-width: 760px; margin: 0 auto; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; overflow-y: hidden; min-height: 44px; max-height: 40vh; padding: 11px 13px; border-radius: 12px;
+             border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 12px;
+         height: 44px; min-width: 44px; padding: 0 14px; font: inherit; cursor: pointer; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .attach-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+  .attach-preview img { height: 48px; border-radius: 8px; border: 1px solid var(--line); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  dialog { border: 0; padding: 0; background: transparent; max-width: 95vw; max-height: 95vh; }
+  dialog::backdrop { background: rgba(0,0,0,.75); }
+  dialog img { max-width: 95vw; max-height: 92vh; border-radius: 10px; display: block; }
+  @media (max-width: 560px) { .msg { max-width: 94%; } .hint { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="flame" aria-hidden="true">🔥</div>
+  <div class="who">
+    <h1 id="name">…</h1>
+    <div class="sub" id="sub">connecting</div>
+  </div>
+  <button class="link" id="theme" title="Toggle light/dark">◐</button>
+  <button class="link" id="reset" title="Clear this conversation">New chat</button>
+</header>
+
+<main id="scroller"><div class="log" id="log"></div></main>
+
+<footer>
+  <div class="composer">
+    <div class="attach-preview" id="preview" hidden></div>
+    <div class="row">
+      <button class="btn" id="attach" title="Attach an image">📎</button>
+      <input type="file" id="file" accept="image/*" hidden>
+      <textarea id="input" rows="1" placeholder="Say something…" autofocus></textarea>
+      <button class="btn primary" id="send">Send</button>
+    </div>
+    <div class="hint">Enter to send, Shift+Enter for a new line. Replies run on a local model and can take a minute or two.</div>
+  </div>
+</footer>
+
+<dialog id="lightbox"><img alt=""></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $("log"), input = $("input"), sendBtn = $("send");
+let info = { agent: "agent", userName: "You" };
+let pending = null;      // { file, dataUrl }
+let busy = false;
+
+try { const t = localStorage.getItem("hearth-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("hearth-theme", next); } catch {}
+};
+
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// Small, safe markdown: code blocks, inline code, bold, italics, links, paragraphs.
+function md(text) {
+  const blocks = [];
+  let s = esc(text || "").replace(/```(\w*)\n?([\s\S]*?)```/g, (_, l, code) => { blocks.push(code); return `\u0000${blocks.length - 1}\u0000`; });
+  s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>")
+       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+       .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+       .replace(/\bhttps?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  s = s.split(/\n{2,}/).map(p => {
+    const lines = p.split("\n");
+    if (lines.every(l => /^\s*[-*] /.test(l))) return `<ul>${lines.map(l => `<li>${l.replace(/^\s*[-*] /, "")}</li>`).join("")}</ul>`;
+    if (lines.every(l => /^\s*\d+[.)] /.test(l))) return `<ol>${lines.map(l => `<li>${l.replace(/^\s*\d+[.)] /, "")}</li>`).join("")}</ol>`;
+    return `<p>${p.replace(/\n/g, "<br>")}</p>`;
+  }).join("");
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre><code>${blocks[+i]}</code></pre>`);
+}
+
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; }
+}
+
+function addMsg(turn) {
+  const el = document.createElement("div");
+  el.className = `msg ${turn.who === "agent" ? "agent" : "user"}`;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.innerHTML = turn.text ? md(turn.text) : (turn.who === "agent" ? "<em>(no words, just actions)</em>" : "");
+  const imgs = [...(turn.attachments || []), ...(turn.images || [])];
+  if (imgs.length) {
+    const box = document.createElement("div");
+    box.className = "imgs";
+    for (const src of imgs) {
+      const img = document.createElement("img");
+      img.src = src; img.alt = ""; img.loading = "lazy";
+      img.onclick = () => { $("lightbox").querySelector("img").src = src; $("lightbox").showModal(); };
+      box.appendChild(img);
+    }
+    bubble.appendChild(box);
+  }
+  el.appendChild(bubble);
+  if (turn.tools?.length) {
+    const t = document.createElement("div");
+    t.className = "tools";
+    t.textContent = "used " + turn.tools.map(x => x.tool + (x.success ? "" : " (failed)")).join(", ");
+    el.appendChild(t);
+  }
+  if (turn.at) {
+    const m = document.createElement("div");
+    m.className = "meta";
+    m.textContent = fmtTime(turn.at);
+    el.appendChild(m);
+  }
+  $("empty")?.remove();
+  log.appendChild(el);
+  scrollDown();
+  return el;
+}
+
+function scrollDown() { const s = $("scroller"); s.scrollTop = s.scrollHeight; }
+
+function showEmpty() {
+  log.innerHTML = `<div class="empty" id="empty"><p>This is where you and ${esc(info.agent)} talk.</p>
+    ${info.intro ? `<p>${esc(info.intro)}</p>` : ""}</div>`;
+}
+
+$("lightbox").onclick = () => $("lightbox").close();
+
+async function loadInfo() {
+  try {
+    info = await (await fetch("/api/info")).json();
+    $("name").textContent = info.agent;
+    document.title = `${info.agent} · hearth chat`;
+    $("sub").textContent = info.model ? `local brain: ${info.model}` : "online";
+  } catch { $("sub").textContent = "can't reach the runtime"; }
+}
+
+async function loadHistory() {
+  const { turns } = await (await fetch("/api/history")).json();
+  log.innerHTML = "";
+  if (!turns.length) showEmpty();
+  for (const t of turns) addMsg(t);
+}
+
+function setBusy(b) {
+  busy = b;
+  sendBtn.disabled = b;
+  $("attach").disabled = b;
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (busy || (!text && !pending)) return;
+  const body = { text: text || "(sent a picture)" };
+  if (pending) body.image = { name: pending.file.name, data: pending.dataUrl.split(",")[1] };
+  addMsg({ who: "user", text: body.text, at: new Date().toISOString(), attachments: pending ? [pending.dataUrl] : [] });
+  input.value = ""; autosize(); clearPending();
+  setBusy(true);
+
+  const wait = addMsg({ who: "agent", text: "" });
+  wait.classList.add("thinking");
+  const started = Date.now();
+  const bubble = wait.querySelector(".bubble");
+  const tick = () => { const s = Math.round((Date.now() - started) / 1000);
+    bubble.innerHTML = `<span class="dots">${esc(info.agent)} is thinking</span> <span style="opacity:.7">${s}s</span>`; };
+  tick();
+  const timer = setInterval(tick, 1000);
+
+  try {
+    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    wait.remove();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    addMsg({ who: "agent", text: data.response, at: new Date().toISOString(), images: data.images, tools: data.tools });
+  } catch (err) {
+    wait.remove();
+    const el = addMsg({ who: "agent", text: `Something went wrong: ${err.message}` });
+    el.classList.add("error");
+  } finally {
+    clearInterval(timer);
+    setBusy(false);
+    input.focus();
+  }
+}
+
+function autosize() {
+  input.style.height = "auto";
+  const max = innerHeight * 0.4;
+  input.style.height = Math.min(input.scrollHeight + 2, max) + "px";
+  input.style.overflowY = input.scrollHeight > max ? "auto" : "hidden";
+}
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+sendBtn.onclick = send;
+
+function setPending(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  if (file.size > 12 * 1024 * 1024) { alert("That image is over 12 MB."); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    pending = { file, dataUrl: r.result };
+    const p = $("preview");
+    p.innerHTML = `<img src="${r.result}" alt=""><span>${esc(file.name)}</span><button class="link" id="unattach">remove</button>`;
+    p.hidden = false;
+    $("unattach").onclick = clearPending;
+  };
+  r.readAsDataURL(file);
+}
+function clearPending() { pending = null; $("preview").hidden = true; $("preview").innerHTML = ""; $("file").value = ""; }
+$("attach").onclick = () => $("file").click();
+$("file").onchange = e => setPending(e.target.files[0]);
+input.addEventListener("paste", e => { const f = [...(e.clipboardData?.files || [])][0]; if (f) { e.preventDefault(); setPending(f); } });
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => { e.preventDefault(); setPending(e.dataTransfer.files[0]); });
+
+$("reset").onclick = async () => {
+  if (busy || !confirm("Start a new chat? The old one is cleared from this page (their journal keeps whatever they wrote).")) return;
+  await fetch("/api/reset", { method: "POST" });
+  showEmpty();
+};
+
+loadInfo().then(loadHistory).catch(() => showEmpty());
+</script>
+</body>
+</html>

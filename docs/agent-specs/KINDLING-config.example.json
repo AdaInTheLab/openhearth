@@ -1,0 +1,115 @@
+{
+  "_comment": "Config for kindling — a local-brain openhearth agent on kodas-hearth (Windows, native). 'kindling' is a placeholder id until they choose a name. See docs/agent-specs/KINDLING.md. Copy to config.json in the checkout.",
+
+  "workspace": "D:\\Hearth\\kindling",
+
+  "ai": {
+    "primary": "ollama",
+    "fallback": "ollama",
+    "fallbackOnError": false,
+    "_comment": "Local brain only. No cloud tier, no CLI auth to babysit."
+  },
+
+  "ollama": {
+    "baseUrl": "http://127.0.0.1:11434",
+    "model": "qwen3.8-aggressive:27b-hearth",
+    "maxTokens": 4096,
+    "numCtx": 16384,
+    "think": false,
+    "timeoutMs": 900000,
+    "maxRetries": 1,
+    "maxToolRounds": 2,
+    "_comment": "Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P + vision projector). 18 GB on a 12 GB RTX 5070, so ~half runs on CPU: ~2.5-3.5 tok/s, plus a ~3 min cold load from V:. think=false keeps replies to a minute or two. The -hearth tag is the same weights without Ollama's qwen3.5 PARSER, which 500s ('EOF') on openhearth's <tool_call>{json} blocks; without the parser, think=true would leak reasoning into replies, so keep it false. timeoutMs is generous on purpose."
+  },
+
+  "sendGate": {
+    "defaultPolicy": "ask",
+    "channels": {
+      "mesh": { "policy": "allow", "_comment": "Skulk-internal — pre-approved." },
+      "discord": { "policy": "ask" },
+      "email": { "policy": "ask" },
+      "webhook": { "policy": "ask" }
+    }
+  },
+
+  "heartbeat": {
+    "socialIntervalMinutes": 120,
+    "taskIntervalMinutes": 120,
+    "heartbeatFile": "HEARTBEAT.md",
+    "session": "main",
+    "quietHours": {
+      "start": 23,
+      "end": 8,
+      "_comment": "Same window as Luna. Each heartbeat loads an 18 GB model onto the shared GPU, so quiet hours also keep nights clear."
+    }
+  },
+
+  "memory": {
+    "bootstrapFiles": ["SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"],
+    "standingOrdersFile": "STANDING_ORDERS.md",
+    "maxStandingOrdersChars": 4000,
+    "dailyMemoryDir": "memory",
+    "maxBootstrapChars": 16000,
+    "_comment": "Lean bootstrap (~4K tokens) — every token is re-read on every call by a CPU-assisted local model."
+  },
+
+  "mesh": {
+    "enabled": true,
+    "agent": "kindling",
+    "embedded": false,
+    "baseUrl": "http://100.119.87.34:3337",
+    "webhookPort": 3342,
+    "webhookUrl": "http://100.110.212.12:3342/incoming",
+    "webhookBind": "100.110.212.12",
+    "_comment": "Mesh client on the Skulk bus (host 'skulk'). Bound to kodas-hearth's tailnet IP only. Port 3342 is free (luna=3341, koda/sage/vesper=3338, marlow=8765). Windows Firewall already allows node.exe inbound on kodas-hearth."
+  },
+
+  "discord": {
+    "accounts": [
+      {
+        "id": "kindling",
+        "mentionPatterns": ["@kindling", "kindling"],
+        "ackReaction": "🔥",
+        "presence": {
+          "status": "online",
+          "activity": "warming up",
+          "type": "custom"
+        },
+        "guilds": {
+          "1489330020789915859": {
+            "channels": [],
+            "requireMention": true
+          }
+        },
+        "_comment": "The Human Pattern Lab guild, any channel, mention required. Token from {workspace}/.config/discord/credentials.json keyed by 'kindling' (or env DISCORD_TOKEN_KINDLING) — needs its own bot from the Discord developer portal."
+      }
+    ]
+  },
+
+  "skills": {
+    "dirs": ["skills", "shared-skills/skills"],
+    "include": ["qwen-imagegen", "self-improving-agent"],
+    "_comment": "Own skills/ first, then the shared Skulk library (git clone of Kitsune-Den/skulk-skills in shared-skills/). Every advertised skill costs prompt tokens on every call, so this is a starter subset. Left out: skills needing credentials kindling doesn't have (gmail, moltbook, nano-banana-pro-2, xai-imagegen, x-twitter, skulk-email), or a shell to run their scripts (research, skulk-skill-scanner, git-ritual, frontend-design-ultimate, skulk-minecraft, sonoscli, auth-guard, thought-to-excalidraw), and skulk-mesh (mesh_send already covers it; its bus address is stale)."
+  },
+
+  "comfyui": {
+    "baseUrl": "http://127.0.0.1:8188",
+    "filenamePrefix": "studio/kindling",
+    "steps": 25,
+    "_comment": "Local Qwen-Image 2.1 (ComfyUI on G:, Qwen Studio add-on). generate_image evicts kindling's own Ollama model first and frees ComfyUI's models after, so the two never share the 12 GB GPU. Images save to {workspace}/images and show in the Qwen Studio gallery."
+  },
+
+  "dreams": { "enabled": false },
+  "delegations": { "enabled": false },
+
+  "chat": { "userName": "Ada" },
+
+  "webchat": {
+    "port": 3343,
+    "bind": "127.0.0.1",
+    "intro": "They're new and haven't picked a name yet. Replies take a minute or two.",
+    "_comment": "Browser chat at http://127.0.0.1:3343, served by the runtime itself. Localhost only: there's no login, so don't bind it wider without thinking about who can reach it. Conversation saved in {workspace}/.openhearth/webchat.json."
+  },
+
+  "logging": { "level": "info" }
+}

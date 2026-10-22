@@ -66,6 +66,53 @@ test('ask prepends systemContext as a system message', async (t) => {
   await ollama.ask('hello', { systemContext: 'you are sage' });
 });
 
+test('ask omits think/num_ctx/keep_alive when not configured', async (t) => {
+  ollama.init(baseConfig);
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    assert.equal('think' in body, false);
+    assert.equal('keep_alive' in body, false);
+    assert.deepEqual(body.options, { num_predict: 8192 });
+    return jsonResponse({ message: { content: 'ok' } });
+  });
+  t.after(restore);
+  await ollama.ask('hello');
+});
+
+test('ask forwards think, numCtx and keepAlive from config', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, think: false, numCtx: 16384, keepAlive: '10m' } });
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    assert.equal(body.think, false);
+    assert.equal(body.keep_alive, '10m');
+    assert.equal(body.options.num_ctx, 16384);
+    assert.equal(body.options.num_predict, 8192);
+    return jsonResponse({ message: { content: 'ok' } });
+  });
+  t.after(restore);
+  await ollama.ask('hello');
+});
+
+test('ask attaches images as base64 on the user message', async (t) => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'ollama-img-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const imgPath = join(dir, 'fox.png');
+  await writeFile(imgPath, Buffer.from('not-really-a-png'));
+
+  ollama.init(baseConfig);
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    const user = body.messages.find(m => m.role === 'user');
+    assert.deepEqual(user.images, [Buffer.from('not-really-a-png').toString('base64')]);
+    return jsonResponse({ message: { content: 'a fox' } });
+  });
+  t.after(restore);
+  assert.equal(await ollama.ask('what is this?', { images: [imgPath] }), 'a fox');
+});
+
 test('ask retries on failure', async (t) => {
   ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxRetries: 2 } });
   let calls = 0;
@@ -141,6 +188,59 @@ test('askWithTools captures executor errors', async (t) => {
   assert.equal(toolResults.length, 1);
   assert.equal(toolResults[0].success, false);
   assert.equal(toolResults[0].result, 'boom');
+});
+
+test('askWithTools stays single-round when maxToolRounds is unset', async (t) => {
+  ollama.init(baseConfig);
+  let calls = 0;
+  const restore = makeFetchMock(async () => {
+    calls++;
+    return jsonResponse({ message: { content: 'On it.\n<tool_call>{"tool":"read_file","path":"a.md"}</tool_call>' } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools('hi', async () => 'contents');
+  assert.equal(calls, 1);
+  assert.equal(toolResults.length, 1);
+  assert.equal(response, 'On it.');
+});
+
+test('askWithTools feeds results back when maxToolRounds is set', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxToolRounds: 2 } });
+  const bodies = [];
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    bodies.push(body);
+    if (bodies.length === 1) {
+      return jsonResponse({ message: { content: '<tool_call>{"tool":"use_skill","name":"research"}</tool_call>' } });
+    }
+    return jsonResponse({ message: { content: 'The research skill says: gather sources first.' } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools(
+    'how do I research?', async () => 'SKILL BODY: gather sources first', { systemContext: 'you are kindling' }
+  );
+  assert.equal(bodies.length, 2);
+  assert.equal(response, 'The research skill says: gather sources first.');
+  assert.equal(toolResults.length, 1);
+  const second = bodies[1].messages;
+  assert.equal(second[0].role, 'system');
+  assert.equal(second[0].content, 'you are kindling');
+  assert.match(second[1].content, /<tool_result tool="use_skill" status="success">\nSKILL BODY: gather sources first/);
+  assert.match(second[1].content, /^how do I research\?/);
+});
+
+test('askWithTools stops after maxToolRounds even if the model keeps calling tools', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxToolRounds: 2 } });
+  let calls = 0;
+  const restore = makeFetchMock(async () => {
+    calls++;
+    return jsonResponse({ message: { content: `step ${calls}\n<tool_call>{"tool":"list_files"}</tool_call>` } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools('loop forever', async () => 'ok');
+  assert.equal(calls, 3);
+  assert.equal(toolResults.length, 3);
+  assert.equal(response, 'step 3');
 });
 
 // ─── ping ────────────────────────────────────────────────────────

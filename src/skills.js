@@ -29,6 +29,7 @@ import { makeLogger } from './log.js';
 const log = makeLogger('skills');
 
 let skillDirs = [];
+let includeSet = null; // optional allow-list (config.skills.include)
 const registry = new Map();
 
 /**
@@ -40,10 +41,17 @@ const registry = new Map();
  * pulls a shared skill library alongside its own:
  *
  *   skills: { dirs: ['skills', 'shared-skills/skills'] }
+ *
+ * Optional config.skills.include is an allow-list of skill names (the
+ * frontmatter name or the folder name). Every advertised skill costs
+ * prompt tokens on every call, so agents on slow local models can take
+ * a starter subset of a big shared library instead of all of it.
  */
 function init(config) {
   const configured = config?.skills?.dirs || ['skills'];
   skillDirs = configured.map(p => isAbsolute(p) ? p : join(config.workspace, p));
+  const include = config?.skills?.include;
+  includeSet = Array.isArray(include) ? new Set(include) : null;
   registry.clear();
 }
 
@@ -141,6 +149,10 @@ async function scanOneDir(dir) {
       if (parsed.error) {
         log.warn(`Skipped ${entry.name} in ${dir}: ${parsed.error}${parsed.fields ? ` (have: ${Object.keys(parsed.fields).join(',')})` : ''}`);
         skipped++;
+        continue;
+      }
+      if (includeSet && !includeSet.has(parsed.name) && !includeSet.has(entry.name)) {
+        log.debug(`Not included: ${parsed.name} (from ${dir})`);
         continue;
       }
       if (registry.has(parsed.name)) {

@@ -189,6 +189,28 @@ test('scan honors multiple dirs with first-wins shadowing', async (t) => {
   assert.ok(list.find(s => s.name === 'archiver'));
 });
 
+test('scan honors skills.include by frontmatter name or folder name', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  await makeSkill(ws.dir, 'image-maker', { name: 'image-maker', description: 'Mine' });
+  await makeSkill(ws.dir, 'self-improving-agent', { name: 'self-improvement', description: 'By folder name' });
+  await makeSkill(ws.dir, 'gmail', { name: 'gmail', description: 'Needs creds' });
+  skills.init({ workspace: ws.dir, skills: { include: ['image-maker', 'self-improving-agent'] } });
+  const result = await skills.scan();
+  assert.equal(result.total, 2);
+  const names = skills.listSkills().map(s => s.name).sort();
+  assert.deepEqual(names, ['image-maker', 'self-improvement']);
+});
+
+test('scan loads everything when skills.include is absent', async (t) => {
+  const ws = await makeWorkspace();
+  t.after(ws.cleanup);
+  await makeSkill(ws.dir, 'a', { name: 'a', description: 'one' });
+  await makeSkill(ws.dir, 'b', { name: 'b', description: 'two' });
+  skills.init({ workspace: ws.dir });
+  assert.equal((await skills.scan()).total, 2);
+});
+
 test('scan accepts absolute paths in config', async (t) => {
   const ws = await makeWorkspace();
   t.after(ws.cleanup);

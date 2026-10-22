@@ -18,6 +18,11 @@
 #   scripts\openhearth.ps1 logs        # tail -f the runtime log
 #   scripts\openhearth.ps1 uninstall
 #
+# Control actions don't need the install-time flags repeated: when
+# -TaskName is omitted and the default task isn't installed, the one
+# openhearth* task that runs this checkout is used, and -LogFile is
+# read back from that task's definition.
+#
 # The scheduled task runs at logon of the installing user, in
 # that user's session. That's deliberate: the agent shells out
 # to CLIs (claude, codex) whose auth lives in the user profile,
@@ -49,8 +54,9 @@ param(
   # agent on the same box (e.g. -TaskName openhearth-luna).
   [string]$TaskName = 'openhearth',
 
-  # Repo root. Defaults to the parent of this script's directory.
-  [string]$RepoDir = (Split-Path -Parent $PSScriptRoot),
+  # Repo root. Defaults to the parent of this script's directory
+  # (resolved below - $PSScriptRoot is empty inside param() on PS 5.1).
+  [string]$RepoDir = '',
 
   # Entry point, relative to -RepoDir (or absolute).
   [string]$EntryScript = 'index.js',
@@ -64,6 +70,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $RepoDir) { $RepoDir = Split-Path -Parent $PSScriptRoot }
+
+$isControl = $Action -notin @('install', 'run')
+
+# Control actions: find the task that runs this checkout when the
+# default name isn't installed (e.g. installed as openhearth-luna).
+if ($isControl -and -not $PSBoundParameters.ContainsKey('TaskName') -and
+    -not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+  $mine = @(Get-ScheduledTask -TaskName 'openhearth*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Actions[0].Arguments -and $_.Actions[0].Arguments.Contains("-RepoDir `"$RepoDir`"") })
+  if ($mine.Count -eq 1) { $TaskName = $mine[0].TaskName }
+}
+
+# Control actions: use the -LogFile the task was installed with, so
+# the PID file and log lookups match what 'run' actually wrote.
+if ($isControl -and -not $LogFile) {
+  $installed = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($installed -and $installed.Actions[0].Arguments -match '-LogFile "([^"]+)"') { $LogFile = $Matches[1] }
+}
 if (-not $LogFile) { $LogFile = Join-Path $RepoDir '.openhearth\runtime.log' }
 
 function Resolve-Node {
@@ -79,6 +104,42 @@ function Get-Task {
   Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 
+# Stop-ScheduledTask only kills the task's own process (this script);
+# node is a child and survives as an orphan, holding the mesh webhook
+# port and the log file, which wedges the next start. 'run' records
+# node's PID here so stop/restart can take it down too.
+$PidFile = Join-Path (Split-Path -Parent $LogFile) 'runtime.pid'
+
+function Stop-NodePid([int]$id) {
+  $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
+  if ($proc -and $proc.ProcessName -eq 'node') {
+    Stop-Process -Id $id -Force
+    Wait-Process -Id $id -Timeout 10 -ErrorAction SilentlyContinue
+  }
+}
+
+function Stop-Agent {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (Test-Path $PidFile) {
+    $agentPid = (Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($agentPid) { Stop-NodePid $agentPid }
+    Remove-Item $PidFile -ErrorAction SilentlyContinue
+  }
+
+  # Backstop for a node the PID file doesn't know about (started by an
+  # older copy of this script, or by hand): whoever holds this agent's
+  # mesh webhook port would make the next start die with EADDRINUSE.
+  $configPath = Join-Path $RepoDir 'config.json'
+  if (Test-Path $configPath) {
+    try { $port = (Get-Content $configPath -Raw | ConvertFrom-Json).mesh.webhookPort } catch { $port = $null }
+    if ($port) {
+      Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object { Stop-NodePid $_ }
+    }
+  }
+}
+
 switch ($Action) {
 
   # --- run: what the scheduled task actually executes ----------
@@ -89,8 +150,13 @@ switch ($Action) {
     $env:NODE_ENV = 'production'
     New-Item -ItemType Directory -Force (Split-Path -Parent $LogFile) | Out-Null
     Set-Location $RepoDir
-    & (Resolve-Node) $EntryScript
-    exit $LASTEXITCODE
+    $proc = Start-Process -FilePath (Resolve-Node) -ArgumentList "`"$EntryScript`"" `
+      -WorkingDirectory $RepoDir -NoNewWindow -PassThru
+    $null = $proc.Handle  # keeps ExitCode readable after exit (PS 5.1 quirk)
+    Set-Content -Path $PidFile -Value $proc.Id -Encoding ascii
+    $proc.WaitForExit()
+    Remove-Item $PidFile -ErrorAction SilentlyContinue
+    exit $proc.ExitCode
   }
 
   'install' {
@@ -140,7 +206,7 @@ switch ($Action) {
 
   'uninstall' {
     if (-not (Get-Task)) { Write-Host "Task '$TaskName' is not installed."; break }
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Stop-Agent
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Write-Host "Uninstalled scheduled task '$TaskName'."
   }
@@ -153,13 +219,13 @@ switch ($Action) {
 
   'stop' {
     if (-not (Get-Task)) { throw "Task '$TaskName' is not installed." }
-    Stop-ScheduledTask -TaskName $TaskName
+    Stop-Agent
     Write-Host "Stopped '$TaskName'."
   }
 
   'restart' {
     if (-not (Get-Task)) { throw "Task '$TaskName' is not installed." }
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Stop-Agent
     Start-ScheduledTask -TaskName $TaskName
     Write-Host "Restarted '$TaskName'."
   }
