@@ -104,5 +104,12 @@
 
   "chat": { "userName": "Ada" },
 
+  "webchat": {
+    "port": 3343,
+    "bind": "127.0.0.1",
+    "intro": "They're new and haven't picked a name yet. Replies take a minute or two.",
+    "_comment": "Browser chat at http://127.0.0.1:3343, served by the runtime itself. Localhost only: there's no login, so don't bind it wider without thinking about who can reach it. Conversation saved in {workspace}/.openhearth/webchat.json."
+  },
+
   "logging": { "level": "info" }
 }

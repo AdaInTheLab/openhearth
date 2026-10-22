@@ -31,14 +31,11 @@ import * as tools from '../src/tools.js';
 import * as kitsunebi from '../src/kitsunebi.js';
 import * as skills from '../src/skills.js';
 import * as comfyui from '../src/comfyui.js';
+import { createConversation } from '../src/conversation.js';
 import { setLevel } from '../src/log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
-
-// Keep the replayed history short — every turn costs prompt tokens on
-// every later message, and local models feel that.
-const HISTORY_TURNS = 12;
 
 async function main() {
   // Runtime info lines would interleave with the conversation.
@@ -57,31 +54,8 @@ async function main() {
   tools.registerMany(comfyui.getToolsFromConfig(config));
   ai.init(config);
 
-  const history = [];
-
-  async function reply(text) {
-    const bootstrapContext = await memory.loadBootstrapContext();
-    const systemContext = `${bootstrapContext}\n\n${tools.getToolsPrompt()}`;
-
-    const promptParts = ['[Terminal conversation]', `Talking with: ${userName}`];
-    if (history.length > 0) {
-      promptParts.push('', '--- Recent messages ---');
-      for (const turn of history.slice(-HISTORY_TURNS)) {
-        promptParts.push(`${turn.who === 'me' ? '[You]' : userName}: ${turn.text}`);
-      }
-      promptParts.push('--- End history ---');
-    }
-    promptParts.push(
-      '',
-      `${userName}: ${text}`,
-      '',
-      `Respond naturally. You are in a direct terminal conversation with ${userName}.`,
-    );
-
-    const { response, toolResults } = await ai.askWithTools(promptParts.join('\n'), tools.execute, { systemContext });
-    history.push({ who: 'user', text }, { who: 'me', text: response });
-    return { response, toolResults };
-  }
+  const conversation = createConversation({ memory, tools, ai, userName, channel: 'Terminal' });
+  const reply = (text) => conversation.send(text);
 
   function print({ response, toolResults }) {
     for (const r of toolResults) {

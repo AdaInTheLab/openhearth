@@ -36,6 +36,7 @@ import * as tools from '../src/tools.js';
 import * as kitsunebi from '../src/kitsunebi.js';
 import * as skills from '../src/skills.js';
 import * as comfyui from '../src/comfyui.js';
+import * as webchat from '../src/webchat.js';
 import * as receipts from '../src/receipts.js';
 import * as sendGate from '../src/send-gate.js';
 import * as discord from '../src/discord.js';
@@ -154,6 +155,14 @@ async function main() {
   // 10. Mesh receiver + webhook registration (non-fatal if the bus is down)
   await mesh.start();
 
+  // 10.5 Browser chat on localhost — the easy way for Ada to talk to them
+  webchat.init(config, { memory, tools, ai, agentName });
+  try {
+    await webchat.start();
+  } catch (err) {
+    log.error(`webchat failed to start: ${err.message}`);
+  }
+
   // 11. Heartbeat cycles
   heartbeat.start();
 
@@ -177,6 +186,7 @@ async function main() {
   const shutdown = async (sig) => {
     log.info(`Received ${sig}, shutting down…`);
     try {
+      webchat.stop();
       if (typeof discord.stop === 'function') await discord.stop();
       if (typeof mesh.stop === 'function') await mesh.stop();
       if (typeof heartbeat.stop === 'function') heartbeat.stop();

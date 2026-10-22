@@ -69,11 +69,34 @@ Ollama model needs the same treatment.
 
 ## Talking to them
 
+- **Browser:** http://127.0.0.1:3343, served by the runtime itself
+  (`src/webchat.js`), so it's up whenever kindling is. Localhost only.
+  The conversation persists in `.openhearth/webchat.json`; generated
+  images show inline; attach/paste/drop a picture for them to look at.
 - **Terminal:** `node scripts/chat.js` in the checkout (or
   `node scripts/chat.js "message"` for one shot). Same soul files,
   tools and brain as the live runtime, and safe to run alongside it.
 - **Discord:** once the token is in place (below).
 - **Mesh:** other agents can `mesh_send` to `kindling`.
+
+## Skills and images
+
+- **Skills:** `skills/` in the workspace (their own) first, then
+  `shared-skills/skills` (a git clone of Kitsune-Den/skulk-skills;
+  `git pull` there to update). `skills.include` limits it to a starter
+  set, since every advertised skill costs ~70-150 prompt tokens on every
+  call: `qwen-imagegen` + `self-improvement` (~290 tokens vs ~1,380
+  for the whole library). The rest need credentials kindling doesn't
+  have or a shell to run their scripts; see the config comment. Add
+  names to `include` and restart to grow it.
+- **Tool results reach the model:** `ollama.maxToolRounds: 2`, so
+  `use_skill`, `read_file` etc. feed back into the reply (each round is
+  another full generation).
+- **Images:** `generate_image` (`src/comfyui.js`) runs Qwen-Image 2.1
+  in Ada's ComfyUI (G:, Qwen Studio graph), the default and only image
+  generator. It evicts kindling's own model from the GPU first and frees
+  ComfyUI after. ~30 s warm per image, saved to `images/` and Qwen
+  Studio's gallery (`kindling_*.png`).
 
 ## Discord setup (Ada)
 
