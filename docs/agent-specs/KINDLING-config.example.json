@@ -12,13 +12,13 @@
 
   "ollama": {
     "baseUrl": "http://127.0.0.1:11434",
-    "model": "qwen3.8-aggressive:27b",
+    "model": "qwen3.8-aggressive:27b-hearth",
     "maxTokens": 4096,
     "numCtx": 16384,
     "think": false,
     "timeoutMs": 900000,
     "maxRetries": 1,
-    "_comment": "Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P + vision projector). 18 GB on a 12 GB RTX 5070, so ~half runs on CPU: ~2.5-3.5 tok/s, plus a ~3 min cold load from V:. think=false keeps replies to a minute or two; set true (or \"low\") to let them reason at ~3x the latency. timeoutMs is generous on purpose."
+    "_comment": "Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P + vision projector). 18 GB on a 12 GB RTX 5070, so ~half runs on CPU: ~2.5-3.5 tok/s, plus a ~3 min cold load from V:. think=false keeps replies to a minute or two. The -hearth tag is the same weights without Ollama's qwen3.5 PARSER, which 500s ('EOF') on openhearth's <tool_call>{json} blocks; without the parser, think=true would leak reasoning into replies, so keep it false. timeoutMs is generous on purpose."
   },
 
   "sendGate": {

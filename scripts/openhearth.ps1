@@ -18,6 +18,11 @@
 #   scripts\openhearth.ps1 logs        # tail -f the runtime log
 #   scripts\openhearth.ps1 uninstall
 #
+# Control actions don't need the install-time flags repeated: when
+# -TaskName is omitted and the default task isn't installed, the one
+# openhearth* task that runs this checkout is used, and -LogFile is
+# read back from that task's definition.
+#
 # The scheduled task runs at logon of the installing user, in
 # that user's session. That's deliberate: the agent shells out
 # to CLIs (claude, codex) whose auth lives in the user profile,
@@ -66,6 +71,24 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not $RepoDir) { $RepoDir = Split-Path -Parent $PSScriptRoot }
+
+$isControl = $Action -notin @('install', 'run')
+
+# Control actions: find the task that runs this checkout when the
+# default name isn't installed (e.g. installed as openhearth-luna).
+if ($isControl -and -not $PSBoundParameters.ContainsKey('TaskName') -and
+    -not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+  $mine = @(Get-ScheduledTask -TaskName 'openhearth*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Actions[0].Arguments -and $_.Actions[0].Arguments.Contains("-RepoDir `"$RepoDir`"") })
+  if ($mine.Count -eq 1) { $TaskName = $mine[0].TaskName }
+}
+
+# Control actions: use the -LogFile the task was installed with, so
+# the PID file and log lookups match what 'run' actually wrote.
+if ($isControl -and -not $LogFile) {
+  $installed = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($installed -and $installed.Actions[0].Arguments -match '-LogFile "([^"]+)"') { $LogFile = $Matches[1] }
+}
 if (-not $LogFile) { $LogFile = Join-Path $RepoDir '.openhearth\runtime.log' }
 
 function Resolve-Node {
@@ -87,15 +110,33 @@ function Get-Task {
 # node's PID here so stop/restart can take it down too.
 $PidFile = Join-Path (Split-Path -Parent $LogFile) 'runtime.pid'
 
+function Stop-NodePid([int]$id) {
+  $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
+  if ($proc -and $proc.ProcessName -eq 'node') {
+    Stop-Process -Id $id -Force
+    Wait-Process -Id $id -Timeout 10 -ErrorAction SilentlyContinue
+  }
+}
+
 function Stop-Agent {
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   if (Test-Path $PidFile) {
     $agentPid = (Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($agentPid) {
-      $proc = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -eq 'node') { Stop-Process -Id $agentPid -Force }
-    }
+    if ($agentPid) { Stop-NodePid $agentPid }
     Remove-Item $PidFile -ErrorAction SilentlyContinue
+  }
+
+  # Backstop for a node the PID file doesn't know about (started by an
+  # older copy of this script, or by hand): whoever holds this agent's
+  # mesh webhook port would make the next start die with EADDRINUSE.
+  $configPath = Join-Path $RepoDir 'config.json'
+  if (Test-Path $configPath) {
+    try { $port = (Get-Content $configPath -Raw | ConvertFrom-Json).mesh.webhookPort } catch { $port = $null }
+    if ($port) {
+      Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object { Stop-NodePid $_ }
+    }
   }
 }
 

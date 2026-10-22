@@ -18,10 +18,11 @@ keys. Born on openhearth directly, not migrated from OpenClaw.
   `KINDLING-config.example.json`.
 - **Workspace:** `D:\Hearth\kindling`. Log at
   `D:\Hearth\kindling\.openhearth\runtime.log`.
-- **Brain:** Ollama `qwen3.8-aggressive:27b`: Qwen3.8-27B, HauhauCS
-  "Aggressive" uncensored variant, Q4_K_P + BF16 vision projector.
-  The GGUFs and Modelfile live in
-  `V:\ai-models\gguf\Qwen3.8-27B-HauhauCS-Aggressive\`.
+- **Brain:** Ollama `qwen3.8-aggressive:27b-hearth`: Qwen3.8-27B,
+  HauhauCS "Aggressive" uncensored variant, Q4_K_P + BF16 vision
+  projector. The GGUFs and both Modelfiles live in
+  `V:\ai-models\gguf\Qwen3.8-27B-HauhauCS-Aggressive\`. See "Model
+  tag" below for why it's the `-hearth` tag.
 - **Bootstrap:** SOUL.md / USER.md / MEMORY.md / HEARTBEAT.md, capped
   at 16K chars (~4K tokens).
 - **Heartbeat:** 2h social + 2h task, quiet hours 23:00–08:00.
@@ -49,6 +50,23 @@ would roughly double speed at some quality cost. Each heartbeat also
 puts the full model on the shared GPU for a few minutes, so expect
 contention if it fires mid-game or mid-render.
 
+## Model tag
+
+There are two Ollama tags over the same weights:
+
+- `qwen3.8-aggressive:27b` (`Modelfile`): `RENDERER qwen3.5` +
+  `PARSER qwen3.5`, like the official qwen3.6. Good for the Ollama app
+  and plain chat.
+- `qwen3.8-aggressive:27b-hearth` (`Modelfile.hearth`): no `PARSER`.
+  openhearth agents write their own `<tool_call>{json}</tool_call>`
+  blocks and parse them client-side (`src/parse-tools.js`), and
+  Ollama's qwen3.5 parser fails those with HTTP 500 `{"error":"EOF"}`.
+
+Without the parser, Ollama no longer separates reasoning from the
+reply, so keep `think: false` with the `-hearth` tag or the thinking
+text lands in what the agent says. Any openhearth agent on a Qwen 3.5+
+Ollama model needs the same treatment.
+
 ## Talking to them
 
 - **Terminal:** `node scripts/chat.js` in the checkout (or
@@ -65,7 +83,8 @@ contention if it fires mid-game or mid-render.
    Messages / Read Message History / Add Reactions.
 3. Copy `D:\Hearth\kindling\.config\discord\credentials.example.json`
    to `credentials.json` next to it and paste the token.
-4. `scripts\openhearth.ps1 restart -TaskName openhearth-kindling -LogFile D:\Hearth\kindling\.openhearth\runtime.log`
+4. `scripts\openhearth.ps1 restart` (from the checkout; it finds the
+   `openhearth-kindling` task and its log on its own)
 
 ## When they choose a name
 
@@ -90,5 +109,9 @@ removed; `mesh.stop()` unregisters it on a clean shutdown.
   block. `run` also records node's PID so `stop` / `restart` /
   `uninstall` can kill it: `Stop-ScheduledTask` only killed the
   PowerShell wrapper, which orphaned node holding the webhook port and
-  log, and the next start hung.
+  log, and the next start hung or died with `EADDRINUSE`. As a
+  backstop, `stop` also kills the node holding the configured mesh
+  webhook port. Control actions find the task that runs this
+  checkout and read `-LogFile` back from it, so they work without
+  repeating the install flags.
 - `scripts/chat.js`: generic terminal chat for any agent's checkout.
