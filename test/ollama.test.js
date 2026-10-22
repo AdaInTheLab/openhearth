@@ -66,6 +66,53 @@ test('ask prepends systemContext as a system message', async (t) => {
   await ollama.ask('hello', { systemContext: 'you are sage' });
 });
 
+test('ask omits think/num_ctx/keep_alive when not configured', async (t) => {
+  ollama.init(baseConfig);
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    assert.equal('think' in body, false);
+    assert.equal('keep_alive' in body, false);
+    assert.deepEqual(body.options, { num_predict: 8192 });
+    return jsonResponse({ message: { content: 'ok' } });
+  });
+  t.after(restore);
+  await ollama.ask('hello');
+});
+
+test('ask forwards think, numCtx and keepAlive from config', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, think: false, numCtx: 16384, keepAlive: '10m' } });
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    assert.equal(body.think, false);
+    assert.equal(body.keep_alive, '10m');
+    assert.equal(body.options.num_ctx, 16384);
+    assert.equal(body.options.num_predict, 8192);
+    return jsonResponse({ message: { content: 'ok' } });
+  });
+  t.after(restore);
+  await ollama.ask('hello');
+});
+
+test('ask attaches images as base64 on the user message', async (t) => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'ollama-img-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const imgPath = join(dir, 'fox.png');
+  await writeFile(imgPath, Buffer.from('not-really-a-png'));
+
+  ollama.init(baseConfig);
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    const user = body.messages.find(m => m.role === 'user');
+    assert.deepEqual(user.images, [Buffer.from('not-really-a-png').toString('base64')]);
+    return jsonResponse({ message: { content: 'a fox' } });
+  });
+  t.after(restore);
+  assert.equal(await ollama.ask('what is this?', { images: [imgPath] }), 'a fox');
+});
+
 test('ask retries on failure', async (t) => {
   ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxRetries: 2 } });
   let calls = 0;

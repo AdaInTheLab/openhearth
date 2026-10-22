@@ -12,6 +12,7 @@
  * queue makes it transparent.
  */
 
+import { readFile } from 'node:fs/promises';
 import { makeLogger } from './log.js';
 import { parseToolCalls } from './parse-tools.js';
 
@@ -44,8 +45,11 @@ function init(config) {
 
 /**
  * Ask Ollama. Returns the response text.
+ *
+ * `images` is an array of local file paths (Discord attachments etc.);
+ * they ride along on the user message for vision-capable models.
  */
-async function ask(prompt, { systemContext, model } = {}) {
+async function ask(prompt, { systemContext, model, images } = {}) {
   return enqueue(async () => {
     let lastError;
 
@@ -57,7 +61,7 @@ async function ask(prompt, { systemContext, model } = {}) {
       }
 
       try {
-        return await callOllama(prompt, { systemContext, model });
+        return await callOllama(prompt, { systemContext, model, images });
       } catch (err) {
         lastError = err;
         log.error(`Ollama call failed (attempt ${attempt + 1})`, err.message);
@@ -68,11 +72,38 @@ async function ask(prompt, { systemContext, model } = {}) {
   });
 }
 
-async function callOllama(prompt, { systemContext, model } = {}) {
+async function callOllama(prompt, { systemContext, model, images } = {}) {
   const messages = [];
 
   if (systemContext) messages.push({ role: 'system', content: systemContext });
-  messages.push({ role: 'user', content: prompt });
+  const userMessage = { role: 'user', content: prompt };
+  if (images?.length) {
+    userMessage.images = await Promise.all(
+      images.map(async (path) => (await readFile(path)).toString('base64'))
+    );
+  }
+  messages.push(userMessage);
+
+  // Optional knobs — only sent when configured, so Ollama's own
+  // defaults (and the model's Modelfile) win otherwise:
+  //   think     — true/false or a level ("low" | "medium" | "high")
+  //               for reasoning models. Thinking lands in
+  //               message.thinking and never in the reply.
+  //   numCtx    — context window. Big local models on small GPUs
+  //               trade context for layers kept in VRAM.
+  //   keepAlive — how long the model stays loaded after a call
+  //               (e.g. "10m", or -1 to pin it).
+  const options = { num_predict: ollamaConfig.maxTokens };
+  if (ollamaConfig.numCtx) options.num_ctx = ollamaConfig.numCtx;
+
+  const body = {
+    model: model || ollamaConfig.model,
+    messages,
+    stream: false,
+    options,
+  };
+  if (ollamaConfig.think !== undefined) body.think = ollamaConfig.think;
+  if (ollamaConfig.keepAlive !== undefined) body.keep_alive = ollamaConfig.keepAlive;
 
   const controller = new AbortController();
   const killTimer = setTimeout(() => controller.abort(), ollamaConfig.timeoutMs);
@@ -82,12 +113,7 @@ async function callOllama(prompt, { systemContext, model } = {}) {
     response = await fetch(`${ollamaConfig.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model || ollamaConfig.model,
-        messages,
-        stream: false,
-        options: { num_predict: ollamaConfig.maxTokens },
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } finally {
@@ -114,8 +140,8 @@ async function callOllama(prompt, { systemContext, model } = {}) {
  * loop. Callers wanting multi-round behavior can call ask() repeatedly
  * with their own results threading.
  */
-async function askWithTools(prompt, toolExecutor, { systemContext, model } = {}) {
-  const response = await ask(prompt, { systemContext, model });
+async function askWithTools(prompt, toolExecutor, { systemContext, model, images } = {}) {
+  const response = await ask(prompt, { systemContext, model, images });
   const toolCalls = parseToolCalls(response);
 
   if (toolCalls.length === 0) {
