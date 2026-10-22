@@ -34,6 +34,8 @@ import * as heartbeat from '../src/heartbeat.js';
 import * as hooks from '../src/hooks.js';
 import * as tools from '../src/tools.js';
 import * as kitsunebi from '../src/kitsunebi.js';
+import * as skills from '../src/skills.js';
+import * as comfyui from '../src/comfyui.js';
 import * as receipts from '../src/receipts.js';
 import * as sendGate from '../src/send-gate.js';
 import * as discord from '../src/discord.js';
@@ -82,6 +84,15 @@ async function main() {
   //     {workspace}/.config/kitsunebi/token; calls fail at use time if
   //     neither is provisioned, so registration is safe on a fresh box.
   tools.registerMany(kitsunebi.getTools({ workspace: config.workspace }));
+
+  // 2.6 Skills — own skills/ first, then the shared Skulk library, limited
+  //     to config.skills.include. Bodies load on demand via use_skill.
+  skills.init(config);
+  await skills.scan();
+  tools.registerSkillsTools({ skills });
+
+  // 2.7 Local image generation (Qwen-Image via ComfyUI), if configured
+  tools.registerMany(comfyui.getToolsFromConfig(config));
 
   // 3. AI router — brings ollama online
   ai.init(config);

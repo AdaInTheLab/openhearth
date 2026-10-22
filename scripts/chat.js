@@ -29,6 +29,8 @@ import * as ai from '../src/ai.js';
 import * as memory from '../src/memory.js';
 import * as tools from '../src/tools.js';
 import * as kitsunebi from '../src/kitsunebi.js';
+import * as skills from '../src/skills.js';
+import * as comfyui from '../src/comfyui.js';
 import { setLevel } from '../src/log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -49,6 +51,10 @@ async function main() {
   memory.init(config);
   tools.init({ memory });
   tools.registerMany(kitsunebi.getTools({ workspace: config.workspace }));
+  skills.init(config);
+  await skills.scan();
+  tools.registerSkillsTools({ skills });
+  tools.registerMany(comfyui.getToolsFromConfig(config));
   ai.init(config);
 
   const history = [];

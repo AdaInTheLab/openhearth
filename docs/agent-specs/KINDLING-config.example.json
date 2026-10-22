@@ -18,6 +18,7 @@
     "think": false,
     "timeoutMs": 900000,
     "maxRetries": 1,
+    "maxToolRounds": 2,
     "_comment": "Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P + vision projector). 18 GB on a 12 GB RTX 5070, so ~half runs on CPU: ~2.5-3.5 tok/s, plus a ~3 min cold load from V:. think=false keeps replies to a minute or two. The -hearth tag is the same weights without Ollama's qwen3.5 PARSER, which 500s ('EOF') on openhearth's <tool_call>{json} blocks; without the parser, think=true would leak reasoning into replies, so keep it false. timeoutMs is generous on purpose."
   },
 
@@ -83,6 +84,19 @@
         "_comment": "The Human Pattern Lab guild, any channel, mention required. Token from {workspace}/.config/discord/credentials.json keyed by 'kindling' (or env DISCORD_TOKEN_KINDLING) — needs its own bot from the Discord developer portal."
       }
     ]
+  },
+
+  "skills": {
+    "dirs": ["skills", "shared-skills/skills"],
+    "include": ["qwen-imagegen", "self-improving-agent"],
+    "_comment": "Own skills/ first, then the shared Skulk library (git clone of Kitsune-Den/skulk-skills in shared-skills/). Every advertised skill costs prompt tokens on every call, so this is a starter subset. Left out: skills needing credentials kindling doesn't have (gmail, moltbook, nano-banana-pro-2, xai-imagegen, x-twitter, skulk-email), or a shell to run their scripts (research, skulk-skill-scanner, git-ritual, frontend-design-ultimate, skulk-minecraft, sonoscli, auth-guard, thought-to-excalidraw), and skulk-mesh (mesh_send already covers it; its bus address is stale)."
+  },
+
+  "comfyui": {
+    "baseUrl": "http://127.0.0.1:8188",
+    "filenamePrefix": "studio/kindling",
+    "steps": 25,
+    "_comment": "Local Qwen-Image 2.1 (ComfyUI on G:, Qwen Studio add-on). generate_image evicts kindling's own Ollama model first and frees ComfyUI's models after, so the two never share the 12 GB GPU. Images save to {workspace}/images and show in the Qwen Studio gallery."
   },
 
   "dreams": { "enabled": false },
