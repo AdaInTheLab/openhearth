@@ -135,36 +135,64 @@ async function callOllama(prompt, { systemContext, model, images } = {}) {
 }
 
 /**
- * Ask with tool-call parsing. Same shape as claude.askWithTools, but
- * single-round — Ollama's tool support is less mature so we don't
- * loop. Callers wanting multi-round behavior can call ask() repeatedly
- * with their own results threading.
+ * Ask with tool-call parsing. Same shape as claude.askWithTools.
+ *
+ * Single-round by default: tools run, but their results never go back
+ * to the model. That's fine for write-only heartbeats and keeps
+ * fallback tiers cheap. Set ollama.maxToolRounds (e.g. 2) when Ollama
+ * is an agent's real brain: results are then fed back the same way
+ * openai/xai do it, so read_file, use_skill etc. can actually inform
+ * the reply. Each extra round is a full generation, so keep it small
+ * on slow local models.
  */
 async function askWithTools(prompt, toolExecutor, { systemContext, model, images } = {}) {
-  const response = await ask(prompt, { systemContext, model, images });
-  const toolCalls = parseToolCalls(response);
+  const maxRounds = ollamaConfig.maxToolRounds ?? 0;
+  const allToolResults = [];
+  let currentPrompt = prompt;
+  let finalResponse = '';
 
-  if (toolCalls.length === 0) {
-    return { response, toolResults: [] };
-  }
+  for (let round = 0; round <= maxRounds; round++) {
+    // Images ride along on the first round only; later rounds re-send the
+    // original prompt as text plus the tool results.
+    const response = await ask(currentPrompt, { systemContext, model, images: round === 0 ? images : undefined });
+    const toolCalls = parseToolCalls(response);
+    const textResponse = response
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+      .trim();
 
-  const toolResults = [];
-  for (const call of toolCalls) {
-    log.info(`Executing tool: ${call.tool}`, { path: call.path });
-    try {
-      const result = await toolExecutor(call);
-      toolResults.push({ call, result, success: true });
-    } catch (err) {
-      log.error(`Tool execution failed: ${call.tool}`, err.message);
-      toolResults.push({ call, result: err.message, success: false });
+    if (toolCalls.length === 0) {
+      finalResponse = textResponse || finalResponse;
+      break;
     }
+
+    const roundResults = [];
+    for (const call of toolCalls) {
+      log.info(`Executing tool: ${call.tool}${maxRounds > 0 ? ` (round ${round + 1})` : ''}`, { path: call.path });
+      try {
+        const result = await toolExecutor(call);
+        roundResults.push({ call, result, success: true });
+      } catch (err) {
+        log.error(`Tool execution failed: ${call.tool}`, err.message);
+        roundResults.push({ call, result: err.message, success: false });
+      }
+    }
+    allToolResults.push(...roundResults);
+
+    if (textResponse) finalResponse = textResponse;
+    if (round === maxRounds) break;
+
+    const resultsBlock = roundResults.map(r => {
+      const status = r.success ? 'success' : 'error';
+      const preview = typeof r.result === 'string' ? r.result.slice(0, 3000) : JSON.stringify(r.result ?? '').slice(0, 3000);
+      return `<tool_result tool="${r.call.tool}" status="${status}">\n${preview}\n</tool_result>`;
+    }).join('\n');
+
+    // Unlike openai/xai we keep systemContext: an unchanged system prompt
+    // lets Ollama reuse its KV cache instead of re-reading the soul files.
+    currentPrompt = `${prompt}\n\n--- Previous response ---\n${response}\n\n--- Tool results ---\n${resultsBlock}\n\n--- Continue ---\nThe tool calls above have been executed and their results are shown. Now respond incorporating these results. Do not repeat the tool calls.`;
   }
 
-  const cleanResponse = response
-    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-    .trim();
-
-  return { response: cleanResponse, toolResults };
+  return { response: finalResponse, toolResults: allToolResults };
 }
 
 /**

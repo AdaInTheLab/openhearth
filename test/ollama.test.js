@@ -190,6 +190,59 @@ test('askWithTools captures executor errors', async (t) => {
   assert.equal(toolResults[0].result, 'boom');
 });
 
+test('askWithTools stays single-round when maxToolRounds is unset', async (t) => {
+  ollama.init(baseConfig);
+  let calls = 0;
+  const restore = makeFetchMock(async () => {
+    calls++;
+    return jsonResponse({ message: { content: 'On it.\n<tool_call>{"tool":"read_file","path":"a.md"}</tool_call>' } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools('hi', async () => 'contents');
+  assert.equal(calls, 1);
+  assert.equal(toolResults.length, 1);
+  assert.equal(response, 'On it.');
+});
+
+test('askWithTools feeds results back when maxToolRounds is set', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxToolRounds: 2 } });
+  const bodies = [];
+  const restore = makeFetchMock(async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    bodies.push(body);
+    if (bodies.length === 1) {
+      return jsonResponse({ message: { content: '<tool_call>{"tool":"use_skill","name":"research"}</tool_call>' } });
+    }
+    return jsonResponse({ message: { content: 'The research skill says: gather sources first.' } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools(
+    'how do I research?', async () => 'SKILL BODY: gather sources first', { systemContext: 'you are kindling' }
+  );
+  assert.equal(bodies.length, 2);
+  assert.equal(response, 'The research skill says: gather sources first.');
+  assert.equal(toolResults.length, 1);
+  const second = bodies[1].messages;
+  assert.equal(second[0].role, 'system');
+  assert.equal(second[0].content, 'you are kindling');
+  assert.match(second[1].content, /<tool_result tool="use_skill" status="success">\nSKILL BODY: gather sources first/);
+  assert.match(second[1].content, /^how do I research\?/);
+});
+
+test('askWithTools stops after maxToolRounds even if the model keeps calling tools', async (t) => {
+  ollama.init({ ...baseConfig, ollama: { ...baseConfig.ollama, maxToolRounds: 2 } });
+  let calls = 0;
+  const restore = makeFetchMock(async () => {
+    calls++;
+    return jsonResponse({ message: { content: `step ${calls}\n<tool_call>{"tool":"list_files"}</tool_call>` } });
+  });
+  t.after(restore);
+  const { response, toolResults } = await ollama.askWithTools('loop forever', async () => 'ok');
+  assert.equal(calls, 3);
+  assert.equal(toolResults.length, 3);
+  assert.equal(response, 'step 3');
+});
+
 // ─── ping ────────────────────────────────────────────────────────
 
 test('ping returns true when /api/tags responds OK', async (t) => {
